@@ -5,6 +5,9 @@ import { useState, useEffect } from "react";
 import { Project, getProjects, stopExperiment, getTelemetry, Telemetry } from "@/actions/dbActions";
 import { Droplet, Activity, Database, AlertCircle, PlayCircle, Square } from "lucide-react";
 import { CartesianGrid, Line, LineChart, XAxis, YAxis, Tooltip, ResponsiveContainer, Legend } from "recharts";
+import { toast } from "sonner";
+import { CreateProjectDialog } from "@/components/CreateProjectDialog";
+import Link from "next/link";
 
 export default function Dashboard() {
     const { isConnected, phData, status, dosePump, publishCommand } = useMqtt();
@@ -59,22 +62,25 @@ export default function Dashboard() {
         }
     }, [phData, status.active_experiment]);
 
-    // Fetch projects when modal opens
+    // Fetch projects on mount for widget and modal
+    const fetchProjectsList = () => {
+        getProjects().then(data => {
+            setProjects(data);
+            if (data.length > 0 && !selectedProjectId) {
+                setSelectedProjectId(data[0].id.toString());
+            } else if (data.length === 0) {
+                setIsCreatingProject(true); // Force create if no projects exist
+            }
+        });
+    };
+
     useEffect(() => {
-        if (showSetup) {
-            getProjects().then(data => {
-                setProjects(data);
-                if (data.length > 0) {
-                    setSelectedProjectId(data[0].id.toString());
-                } else {
-                    setIsCreatingProject(true); // Force create if no projects exist
-                }
-            });
-        }
-    }, [showSetup]);
+        fetchProjectsList();
+    }, []);
 
     const handleManualDose = (pumpId: number) => {
         dosePump(pumpId, "forward", 50); // 50 steps default dose
+        toast.info(`Override: Activated Pump ${pumpId} for 50 steps`);
     };
 
     const handleStopExperiment = async () => {
@@ -86,9 +92,13 @@ export default function Dashboard() {
             if (success) {
                 // Publish the stop command so the Python backend loop shuts down logging
                 publishCommand("reactor/control/pump/auto", { action: "stop" });
+                toast.success(`Experiment #${status.active_experiment} stopped successfully`);
+            } else {
+                toast.error("Database failed to mark experiment as completed.");
             }
         } catch (err) {
             console.error(err);
+            toast.error("An unexpected error occurred while stopping the experiment.");
         } finally {
             setIsSubmitting(false);
         }
@@ -117,13 +127,15 @@ export default function Dashboard() {
 
             if (res.ok) {
                 setShowSetup(false);
+                toast.success("Experiment started and auto-thresholds deployed!");
                 // MQTT Auto-Thresholds will be updated by Python backend detecting DB change, 
                 // or we could force a reload here if needed.
             } else {
-                console.error("Failed to start experiment");
+                toast.error("Failed to compile or start experiment on backend.");
             }
         } catch (err) {
             console.error("Error submitting experiment:", err);
+            toast.error("Network or internal generic error occurred while pairing experiment.");
         } finally {
             setIsSubmitting(false);
         }
@@ -134,7 +146,12 @@ export default function Dashboard() {
             {/* Main Content */}
             <main className="max-w-7xl mx-auto px-6 py-8 space-y-8">
 
-                <h1 className="text-2xl font-medium tracking-tight text-neutral-100">Live Control Room</h1>
+                <div className="flex items-center justify-between">
+                    <h1 className="text-2xl font-medium tracking-tight text-neutral-100">Live Control Room</h1>
+                    <div className="flex items-center gap-3">
+                        <CreateProjectDialog onSuccess={fetchProjectsList} />
+                    </div>
+                </div>
 
                 {/* Active Experiment Banner */}
                 {status.active_experiment ? (
@@ -304,31 +321,77 @@ export default function Dashboard() {
                     )}
                 </div>
 
-                {/* Manual Override Control */}
-                <div>
-                    <h2 className="text-lg font-medium text-neutral-200 mb-4">Manual Override</h2>
-                    <div className="bg-neutral-900 rounded-2xl border border-neutral-800 p-6">
-                        <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-                            {[1, 2, 3].map((id) => (
-                                <button
-                                    key={`pump-${id}`}
-                                    onClick={() => handleManualDose(id)}
-                                    disabled={!isConnected}
-                                    className="group relative overflow-hidden flex items-center justify-between p-4 rounded-xl bg-neutral-950 border border-neutral-800 hover:border-indigo-500/50 transition-all disabled:opacity-50 disabled:cursor-not-allowed disabled:hover:border-neutral-800"
-                                >
-                                    <div className="flex flex-col items-start gap-1">
-                                        <span className="text-neutral-400 text-sm font-medium">Pump {id}</span>
-                                        <span className="text-neutral-200">Dose Base</span>
-                                    </div>
-                                    <div className="w-10 h-10 rounded-full bg-indigo-500/10 flex items-center justify-center group-hover:bg-indigo-500 group-hover:scale-110 transition-all">
-                                        <Droplet className="w-4 h-4 text-indigo-400 group-hover:text-neutral-950 transition-colors" />
-                                    </div>
-                                </button>
-                            ))}
+                {/* Manual Override & Recent Projects Grid */}
+                <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
+                    {/* Manual Override Control */}
+                    <div>
+                        <h2 className="text-lg font-medium text-neutral-200 mb-4">Manual Override</h2>
+                        <div className="bg-neutral-900 rounded-2xl border border-neutral-800 p-6 h-[calc(100%-2rem)] flex flex-col justify-between">
+                            <div className="grid grid-cols-1 gap-4">
+                                {[1, 2, 3].map((id) => (
+                                    <button
+                                        key={`pump-${id}`}
+                                        onClick={() => handleManualDose(id)}
+                                        disabled={!isConnected}
+                                        className="group relative overflow-hidden flex items-center justify-between p-4 rounded-xl bg-neutral-950 border border-neutral-800 hover:border-indigo-500/50 transition-all disabled:opacity-50 disabled:cursor-not-allowed disabled:hover:border-neutral-800"
+                                    >
+                                        <div className="flex flex-col items-start gap-1">
+                                            <span className="text-neutral-400 text-sm font-medium">Pump {id}</span>
+                                            <span className="text-neutral-200">Dose Base</span>
+                                        </div>
+                                        <div className="w-10 h-10 rounded-full bg-indigo-500/10 flex items-center justify-center group-hover:bg-indigo-500 group-hover:scale-110 transition-all">
+                                            <Droplet className="w-4 h-4 text-indigo-400 group-hover:text-neutral-950 transition-colors" />
+                                        </div>
+                                    </button>
+                                ))}
+                            </div>
+                            <p className="text-neutral-500 text-sm mt-4">
+                                Clicking a pump immediately forces a 50-step dose. Overrides any active auto-loop.
+                            </p>
                         </div>
-                        <p className="text-neutral-500 text-sm mt-4">
-                            Clicking a pump immediately forces a 50-step dose. Overrides any active auto-loop.
-                        </p>
+                    </div>
+
+                    {/* Recent Projects Widget */}
+                    <div>
+                        <div className="flex items-center justify-between mb-4">
+                            <h2 className="text-lg font-medium text-neutral-200">Recent Projects</h2>
+                            <Link href="/projects" className="text-sm text-indigo-400 hover:text-indigo-300 transition-colors">
+                                View Archive &rarr;
+                            </Link>
+                        </div>
+                        <div className="bg-neutral-900 rounded-2xl border border-neutral-800 p-6 h-[calc(100%-2rem)]">
+                            {projects.length === 0 ? (
+                                <div className="h-full flex flex-col items-center justify-center text-neutral-500 gap-3 border border-neutral-800 border-dashed rounded-xl p-6">
+                                    <Database className="w-8 h-8 opacity-50" />
+                                    <p>No projects found. Create one to get started.</p>
+                                </div>
+                            ) : (
+                                <ul className="space-y-3">
+                                    {projects.slice(0, 5).map(project => (
+                                        <li key={project.id}>
+                                            <Link
+                                                href={`/projects/${project.id}`}
+                                                className="block p-4 rounded-xl bg-neutral-950 border border-neutral-800 hover:border-indigo-500/50 transition-all group"
+                                            >
+                                                <div className="flex justify-between items-center">
+                                                    <div>
+                                                        <h3 className="text-neutral-200 font-medium group-hover:text-indigo-400 transition-colors">
+                                                            {project.name}
+                                                        </h3>
+                                                        <p className="text-xs text-neutral-500 mt-1">
+                                                            {project.researcher_name} &bull; {new Date(project.created_at).toLocaleDateString()}
+                                                        </p>
+                                                    </div>
+                                                    <div className="text-neutral-600 group-hover:text-indigo-500 transition-colors">
+                                                        &rarr;
+                                                    </div>
+                                                </div>
+                                            </Link>
+                                        </li>
+                                    ))}
+                                </ul>
+                            )}
+                        </div>
                     </div>
                 </div>
 

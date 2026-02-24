@@ -3,6 +3,7 @@ import Link from "next/link";
 import { FolderArchive, Calendar, User } from "lucide-react";
 import { Card, CardHeader, CardTitle, CardDescription, CardContent } from "@/components/ui/card";
 import { DeleteProjectButton } from "@/components/DeleteProjectButton";
+import { CreateProjectDialog } from "@/components/CreateProjectDialog";
 
 export const dynamic = "force-dynamic";
 
@@ -11,9 +12,12 @@ export default async function ProjectsArchive() {
 
     return (
         <main className="max-w-7xl mx-auto px-6 py-8 space-y-8">
-            <div className="flex items-center gap-3 mb-8">
-                <FolderArchive className="w-6 h-6 text-indigo-400" />
-                <h1 className="text-2xl font-medium tracking-tight text-neutral-100">Projects Archive</h1>
+            <div className="flex items-center justify-between mb-8">
+                <div className="flex items-center gap-3">
+                    <FolderArchive className="w-6 h-6 text-indigo-400" />
+                    <h1 className="text-2xl font-medium tracking-tight text-neutral-100">Projects Archive</h1>
+                </div>
+                <CreateProjectDialog />
             </div>
 
             {projects.length === 0 ? (

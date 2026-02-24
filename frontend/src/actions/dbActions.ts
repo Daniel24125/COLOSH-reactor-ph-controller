@@ -55,6 +55,24 @@ export async function getProjectById(id: string): Promise<Project | null> {
     }
 }
 
+export async function createProject(name: string, researcher_name: string): Promise<Project | null> {
+    try {
+        const db = await getDb();
+        const result = await db.run(
+            "INSERT INTO projects (name, researcher_name) VALUES (?, ?)",
+            [name, researcher_name]
+        );
+
+        if (result.lastID) {
+            return await getProjectById(result.lastID.toString());
+        }
+        return null;
+    } catch (error) {
+        console.error("Failed to create project:", error);
+        return null;
+    }
+}
+
 export async function getExperimentsByProject(projectId: string): Promise<Experiment[]> {
     try {
         const db = await getDb();
