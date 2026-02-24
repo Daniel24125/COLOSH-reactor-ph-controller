@@ -1,14 +1,15 @@
 import json
 import logging
 import asyncio
+import os
 import paho.mqtt.client as mqtt
 
 logger = logging.getLogger(__name__)
 
 class MQTTClient:
-    def __init__(self, broker_url="localhost", port=1883, client_id="reactor_core"):
-        self.broker_url = broker_url
-        self.port = port
+    def __init__(self, broker_url=None, port=None, client_id="reactor_core"):
+        self.broker_url = broker_url or os.getenv("MQTT_BROKER_URL", "localhost")
+        self.port = port or int(os.getenv("MQTT_PORT", "1883"))
         self.client_id = client_id
         
         # We'll set these up from main.py

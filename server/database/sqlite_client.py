@@ -1,12 +1,13 @@
 import sqlite3
 import logging
+import os
 from datetime import datetime
 
 logger = logging.getLogger(__name__)
 
 class SQLiteClient:
-    def __init__(self, db_path='reactor.db'):
-        self.db_path = db_path
+    def __init__(self, db_path=None):
+        self.db_path = db_path or os.getenv("SQLITE_DB_PATH", "reactor.db")
         self._init_db()
 
     def _init_db(self):

@@ -1,5 +1,6 @@
 paho-mqtt>=2.0.0
 adafruit-circuitpython-ads1x15>=2.2.14
+python-dotenv==1.0.1
 # Note: lgpio usually requires system-level installation on Raspberry Pi (apt install python3-lgpio)
 # but we include a placeholder below for documentation purposes. 
 # It will fail on Windows, which is why hal.py catches the ImportError

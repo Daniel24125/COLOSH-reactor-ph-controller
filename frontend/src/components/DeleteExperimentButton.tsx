@@ -22,10 +22,6 @@ export function DeleteExperimentButton({ id, experimentName }: { id: number, exp
     const [isDeleting, setIsDeleting] = useState(false);
 
     const handleDelete = async (e: React.MouseEvent) => {
-        // Prevent wrap-link navigation
-        e.preventDefault();
-        e.stopPropagation();
-
         setIsDeleting(true);
         const success = await deleteExperiment(id);
         if (success) {
@@ -41,10 +37,6 @@ export function DeleteExperimentButton({ id, experimentName }: { id: number, exp
         <AlertDialog>
             <AlertDialogTrigger asChild>
                 <button
-                    onClick={(e) => {
-                        e.preventDefault();
-                        e.stopPropagation();
-                    }}
                     disabled={isDeleting}
                     className="p-2 text-neutral-500 hover:text-red-400 hover:bg-red-400/10 rounded-lg transition-colors disabled:opacity-50"
                     title="Delete Experiment"
@@ -64,10 +56,6 @@ export function DeleteExperimentButton({ id, experimentName }: { id: number, exp
                 <AlertDialogFooter>
                     <AlertDialogCancel
                         className="bg-neutral-800 text-neutral-200 hover:bg-neutral-700 hover:text-white border-neutral-700"
-                        onClick={(e) => {
-                            e.preventDefault();
-                            e.stopPropagation();
-                        }}
                     >
                         Cancel
                     </AlertDialogCancel>

@@ -2,7 +2,10 @@ import sqlite3 from "sqlite3";
 import { open, Database } from "sqlite";
 import path from "path";
 
-const dbPath = path.resolve("../server/reactor.db");
+// Support cross-platform pathing from the env, fallback to old hardcoded path
+const dbPath = process.env.DATABASE_URL
+    ? path.resolve(process.env.DATABASE_URL)
+    : path.resolve("../server/reactor.db");
 
 let dbInstance: Database<sqlite3.Database, sqlite3.Statement> | null = null;
 

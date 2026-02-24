@@ -4,7 +4,7 @@ import { useState, useEffect } from "react";
 import mqtt from "mqtt";
 
 // Ensure this runs only on the client side
-const BROKER_URL = "ws://localhost:9001"; // Mosquitto over WebSockets
+const BROKER_URL = process.env.NEXT_PUBLIC_MQTT_URL || "ws://localhost:9001"; // Fallback to Mosquitto over WebSockets
 
 export function useMqtt() {
     const [client, setClient] = useState<mqtt.MqttClient | null>(null);

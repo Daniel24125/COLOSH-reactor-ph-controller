@@ -2,9 +2,15 @@ import asyncio
 import logging
 import time
 import json
+import os
+from dotenv import load_dotenv
+
 from hardware import get_hardware
 from database import SQLiteClient
 from mqtt import MQTTClient
+
+# Load the .env config overrides
+load_dotenv()
 
 # Setup basic logging
 logging.basicConfig(
@@ -19,10 +25,13 @@ class ReactorController:
         self.hw = get_hardware()
         
         # 2. Initialize DBs
-        self.sqlite = SQLiteClient()
+        db_path = os.getenv("SQLITE_DB_PATH", "reactor.db")
+        self.sqlite = SQLiteClient(db_path=db_path)
         
         # 3. Initialize MQTT
-        self.mqtt = MQTTClient()
+        mqtt_url = os.getenv("MQTT_BROKER_URL", "localhost")
+        mqtt_port = int(os.getenv("MQTT_PORT", "1883"))
+        self.mqtt = MQTTClient(broker_url=mqtt_url, port=mqtt_port)
         self.mqtt.on_manual_control = self.handle_manual_control
         self.mqtt.on_auto_update = self.handle_auto_update
 
