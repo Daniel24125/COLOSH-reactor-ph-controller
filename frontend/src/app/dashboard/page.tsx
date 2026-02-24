@@ -7,10 +7,11 @@ import { Droplet, Activity, Database, AlertCircle, PlayCircle, Square } from "lu
 import { CartesianGrid, Line, LineChart, XAxis, YAxis, Tooltip, ResponsiveContainer, Legend } from "recharts";
 import { toast } from "sonner";
 import { CreateProjectDialog } from "@/components/CreateProjectDialog";
+import { EventLogWidget } from "@/components/EventLogWidget";
 import Link from "next/link";
 
 export default function Dashboard() {
-    const { isConnected, phData, status, dosePump, publishCommand } = useMqtt();
+    const { isConnected, phData, status, eventLogs, dosePump, publishCommand } = useMqtt();
     const [showSetup, setShowSetup] = useState(false);
     const [isSubmitting, setIsSubmitting] = useState(false);
 
@@ -44,7 +45,7 @@ export default function Dashboard() {
         if (status.active_experiment && Object.keys(phData).length > 0) {
             const now = new Date();
             const newPoint = {
-                id: now.getTime(),
+                id: now.getTime().toString(),
                 experiment_id: status.active_experiment,
                 timestamp: now.toISOString(),
                 timeStr: now.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' }),
@@ -394,6 +395,13 @@ export default function Dashboard() {
                         </div>
                     </div>
                 </div>
+
+                {/* Event Logs Widget */}
+                {status.active_experiment && (
+                    <div className="pt-4">
+                        <EventLogWidget logs={eventLogs} />
+                    </div>
+                )}
 
             </main>
         </div>

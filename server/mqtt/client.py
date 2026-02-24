@@ -74,6 +74,20 @@ class MQTTClient:
         except Exception as e:
             logger.error(f"Failed to publish status: {e}")
 
+    def publish_event(self, level: str, message: str, compartment: int = None):
+        """Publish event logs."""
+        from datetime import datetime
+        try:
+            payload = {
+                "level": level,
+                "message": message,
+                "compartment": compartment,
+                "timestamp": datetime.utcnow().isoformat() + "Z"
+            }
+            self.client.publish("reactor/events", json.dumps(payload))
+        except Exception as e:
+            logger.error(f"Failed to publish event: {e}")
+
     def disconnect(self):
         self.client.loop_stop()
         self.client.disconnect()

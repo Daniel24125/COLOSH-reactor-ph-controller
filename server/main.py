@@ -39,6 +39,12 @@ class ReactorController:
         self.running = False
         self.active_experiment = None
 
+    async def log_experiment_event(self, level: str, message: str, compartment: int = None):
+        """Log event to DB and broadcast via MQTT."""
+        self.mqtt.publish_event(level, message, compartment)
+        if self.active_experiment:
+            await asyncio.to_thread(self.sqlite.log_event, self.active_experiment['id'], level, message, compartment)
+
     async def handle_manual_control(self, payload: dict):
         """Handle manual pump commands from MQTT."""
         pump_id = payload.get("pump_id")
@@ -47,6 +53,7 @@ class ReactorController:
         
         if pump_id in self.hw.pumps:
             logger.info(f"Manual Override: Dosing pump {pump_id} {steps} steps {direction}")
+            await self.log_experiment_event("INFO", f"Manual Override: Pump {pump_id} activated for {steps} steps ({direction})", pump_id)
             pump = self.hw.pumps[pump_id]
             # Offload blocking hardware call to thread
             await asyncio.to_thread(pump.dose, direction, steps)
@@ -73,6 +80,7 @@ class ReactorController:
             if pump_id in self.hw.pumps:
                 pump = self.hw.pumps[pump_id]
                 logger.info(f"Auto Dosing: Compartment {compartment_id} pH ({current_ph}) < {target_min}. Dosing {steps} steps.")
+                await self.log_experiment_event("INFO", f"Auto Dosing: pH {current_ph} < {target_min}. Pump activated for {steps} steps.", compartment_id)
                 await asyncio.to_thread(pump.dose, direction, steps)
 
     async def run_loop(self):
@@ -89,11 +97,15 @@ class ReactorController:
                 # 2. Read Sensors
                 ph_data = {}
                 for i in [1, 2, 3]:
-                    ph_val = await asyncio.to_thread(self.hw.adc.read_ph, i)
-                    ph_data[i] = ph_val
-                    
-                    # 3. Check Auto Dosing
-                    await self.dosing_logic(i, ph_val)
+                    try:
+                        ph_val = await asyncio.to_thread(self.hw.adc.read_ph, i)
+                        ph_data[i] = ph_val
+                        
+                        # 3. Check Auto Dosing
+                        await self.dosing_logic(i, ph_val)
+                    except Exception as e:
+                        logger.error(f"Error reading pH for compartment {i}: {e}")
+                        await self.log_experiment_event("ERROR", f"Failed to read pH sensor: {str(e)}", i)
                 
                 # Log telemetry to SQLite if experiment running
                 if self.active_experiment:

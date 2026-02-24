@@ -28,14 +28,14 @@ export async function POST(req: Request) {
         // Ensure tables exist in case the DB was deleted and backend hasn't run
         await db.exec(`
             CREATE TABLE IF NOT EXISTS projects (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                id TEXT PRIMARY KEY,
                 name TEXT NOT NULL,
                 researcher_name TEXT,
                 created_at DATETIME DEFAULT CURRENT_TIMESTAMP
             );
             CREATE TABLE IF NOT EXISTS experiments (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                project_id INTEGER,
+                id TEXT PRIMARY KEY,
+                project_id TEXT,
                 name TEXT NOT NULL,
                 target_ph_min REAL NOT NULL,
                 target_ph_max REAL NOT NULL,
@@ -44,12 +44,21 @@ export async function POST(req: Request) {
                 FOREIGN KEY (project_id) REFERENCES projects(id)
             );
             CREATE TABLE IF NOT EXISTS telemetry (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                experiment_id INTEGER,
+                id TEXT PRIMARY KEY,
+                experiment_id TEXT,
                 timestamp DATETIME DEFAULT CURRENT_TIMESTAMP,
                 compartment_1_ph REAL,
                 compartment_2_ph REAL,
                 compartment_3_ph REAL,
+                FOREIGN KEY (experiment_id) REFERENCES experiments(id)
+            );
+            CREATE TABLE IF NOT EXISTS experiment_logs (
+                id TEXT PRIMARY KEY,
+                experiment_id TEXT,
+                timestamp DATETIME DEFAULT CURRENT_TIMESTAMP,
+                level TEXT NOT NULL,
+                message TEXT NOT NULL,
+                compartment INTEGER,
                 FOREIGN KEY (experiment_id) REFERENCES experiments(id)
             );
             CREATE INDEX IF NOT EXISTS idx_telemetry_experiment_time ON telemetry(experiment_id, timestamp);
@@ -59,17 +68,18 @@ export async function POST(req: Request) {
 
         // 1. Create Project if no ID was provided (assuming user selected 'Create New')
         if (!activeProjectId) {
-            const projectResult = await db.run('INSERT INTO projects (name, researcher_name) VALUES (?, ?)', [projectName, researcherName]);
-            activeProjectId = projectResult.lastID;
+            activeProjectId = crypto.randomUUID();
+            await db.run('INSERT INTO projects (id, name, researcher_name) VALUES (?, ?, ?)', [activeProjectId, projectName, researcherName]);
         }
 
         // 2. Set existing active experiments to completed
         await db.run('UPDATE experiments SET status = ? WHERE status = ?', ['completed', 'active']);
 
         // 3. Create new Experiment
-        const experimentResult = await db.run(
-            'INSERT INTO experiments (project_id, name, target_ph_min, target_ph_max, status) VALUES (?, ?, ?, ?, ?)',
-            [activeProjectId, experimentName, targetPhMin, targetPhMax, 'active']
+        const experimentId = crypto.randomUUID();
+        await db.run(
+            'INSERT INTO experiments (id, project_id, name, target_ph_min, target_ph_max, status) VALUES (?, ?, ?, ?, ?, ?)',
+            [experimentId, activeProjectId, experimentName, targetPhMin, targetPhMax, 'active']
         );
 
         await db.close();
@@ -77,7 +87,7 @@ export async function POST(req: Request) {
         return NextResponse.json({
             success: true,
             projectId: activeProjectId,
-            experimentId: experimentResult.lastID
+            experimentId: experimentId
         });
 
     } catch (error) {

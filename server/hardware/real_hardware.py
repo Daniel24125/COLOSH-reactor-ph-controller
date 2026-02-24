@@ -48,7 +48,7 @@ class RealADC:
             return round(ph, 2)
         except Exception as e:
             logger.error(f"Error reading pH for compartment {compartment_id}: {e}")
-            return -1.0
+            raise e
 
 
 class RealStepper:

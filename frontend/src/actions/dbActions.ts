@@ -3,15 +3,15 @@
 import { getDb } from "@/lib/db";
 
 export type Project = {
-    id: number;
+    id: string;
     name: string;
     researcher_name: string;
     created_at: string;
 };
 
 export type Experiment = {
-    id: number;
-    project_id: number;
+    id: string;
+    project_id: string;
     name: string;
     target_ph_min: number;
     target_ph_max: number;
@@ -20,12 +20,21 @@ export type Experiment = {
 };
 
 export type Telemetry = {
-    id: number;
-    experiment_id: number;
+    id: string;
+    experiment_id: string;
     timestamp: string;
     compartment_1_ph: number;
     compartment_2_ph: number;
     compartment_3_ph: number;
+};
+
+export type ExperimentLog = {
+    id: string;
+    experiment_id: string;
+    timestamp: string;
+    level: string;
+    message: string;
+    compartment: number | null;
 };
 
 export async function getProjects(): Promise<Project[]> {
@@ -58,15 +67,13 @@ export async function getProjectById(id: string): Promise<Project | null> {
 export async function createProject(name: string, researcher_name: string): Promise<Project | null> {
     try {
         const db = await getDb();
-        const result = await db.run(
-            "INSERT INTO projects (name, researcher_name) VALUES (?, ?)",
-            [name, researcher_name]
+        const id = crypto.randomUUID();
+        await db.run(
+            "INSERT INTO projects (id, name, researcher_name) VALUES (?, ?, ?)",
+            [id, name, researcher_name]
         );
 
-        if (result.lastID) {
-            return await getProjectById(result.lastID.toString());
-        }
-        return null;
+        return await getProjectById(id);
     } catch (error) {
         console.error("Failed to create project:", error);
         return null;
@@ -101,7 +108,21 @@ export async function getTelemetry(experimentId: string): Promise<Telemetry[]> {
     }
 }
 
-export async function stopExperiment(experimentId: number | string): Promise<boolean> {
+export async function getExperimentLogs(experimentId: string): Promise<ExperimentLog[]> {
+    try {
+        const db = await getDb();
+        const logs = await db.all<ExperimentLog[]>(
+            "SELECT * FROM experiment_logs WHERE experiment_id = ? ORDER BY timestamp ASC",
+            [experimentId]
+        );
+        return logs;
+    } catch (error) {
+        console.error("Failed to fetch experiment logs:", error);
+        return [];
+    }
+}
+
+export async function stopExperiment(experimentId: string): Promise<boolean> {
     try {
         const db = await getDb();
         await db.run(
@@ -115,7 +136,7 @@ export async function stopExperiment(experimentId: number | string): Promise<boo
     }
 }
 
-export async function updateProject(id: number, data: Partial<Project>): Promise<boolean> {
+export async function updateProject(id: string, data: Partial<Project>): Promise<boolean> {
     try {
         const db = await getDb();
         // Construct SET clause dynamically
@@ -133,12 +154,13 @@ export async function updateProject(id: number, data: Partial<Project>): Promise
     }
 }
 
-export async function deleteExperiment(id: number | string): Promise<boolean> {
+export async function deleteExperiment(id: string): Promise<boolean> {
     try {
         const db = await getDb();
 
         // Manual Cascade (Since FK constraints might not have ON DELETE CASCADE set historically)
         await db.run("DELETE FROM telemetry WHERE experiment_id = ?", [id]);
+        await db.run("DELETE FROM experiment_logs WHERE experiment_id = ?", [id]);
         await db.run("DELETE FROM experiments WHERE id = ?", [id]);
 
         return true;
@@ -148,16 +170,15 @@ export async function deleteExperiment(id: number | string): Promise<boolean> {
     }
 }
 
-export async function deleteProject(id: number | string): Promise<boolean> {
+export async function deleteProject(id: string): Promise<boolean> {
     try {
         const db = await getDb();
 
         // Manual Cascade
-        const experiments = await db.all<{ id: number }[]>("SELECT id FROM experiments WHERE project_id = ?", [id]);
+        const experiments = await db.all<{ id: string }[]>("SELECT id FROM experiments WHERE project_id = ?", [id]);
 
         for (const exp of experiments) {
-            await db.run("DELETE FROM telemetry WHERE experiment_id = ?", [exp.id]);
-            await db.run("DELETE FROM experiments WHERE id = ?", [exp.id]);
+            await deleteExperiment(exp.id);
         }
 
         await db.run("DELETE FROM projects WHERE id = ?", [id]);

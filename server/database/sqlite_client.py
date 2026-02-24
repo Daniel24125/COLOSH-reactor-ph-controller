@@ -2,6 +2,7 @@ import sqlite3
 import logging
 import os
 from datetime import datetime
+import uuid
 
 logger = logging.getLogger(__name__)
 
@@ -17,7 +18,7 @@ class SQLiteClient:
                 cursor = conn.cursor()
                 cursor.execute('''
                     CREATE TABLE IF NOT EXISTS projects (
-                        id INTEGER PRIMARY KEY AUTOINCREMENT,
+                        id TEXT PRIMARY KEY,
                         name TEXT NOT NULL,
                         researcher_name TEXT,
                         created_at DATETIME DEFAULT CURRENT_TIMESTAMP
@@ -25,8 +26,8 @@ class SQLiteClient:
                 ''')
                 cursor.execute('''
                     CREATE TABLE IF NOT EXISTS experiments (
-                        id INTEGER PRIMARY KEY AUTOINCREMENT,
-                        project_id INTEGER,
+                        id TEXT PRIMARY KEY,
+                        project_id TEXT,
                         name TEXT NOT NULL,
                         target_ph_min REAL NOT NULL,
                         target_ph_max REAL NOT NULL,
@@ -37,12 +38,23 @@ class SQLiteClient:
                 ''')
                 cursor.execute('''
                     CREATE TABLE IF NOT EXISTS telemetry (
-                        id INTEGER PRIMARY KEY AUTOINCREMENT,
-                        experiment_id INTEGER,
+                        id TEXT PRIMARY KEY,
+                        experiment_id TEXT,
                         timestamp DATETIME DEFAULT CURRENT_TIMESTAMP,
                         compartment_1_ph REAL,
                         compartment_2_ph REAL,
                         compartment_3_ph REAL,
+                        FOREIGN KEY (experiment_id) REFERENCES experiments(id)
+                    )
+                ''')
+                cursor.execute('''
+                    CREATE TABLE IF NOT EXISTS experiment_logs (
+                        id TEXT PRIMARY KEY,
+                        experiment_id TEXT,
+                        timestamp DATETIME DEFAULT CURRENT_TIMESTAMP,
+                        level TEXT NOT NULL,
+                        message TEXT NOT NULL,
+                        compartment INTEGER,
                         FOREIGN KEY (experiment_id) REFERENCES experiments(id)
                     )
                 ''')
@@ -72,14 +84,15 @@ class SQLiteClient:
             with sqlite3.connect(self.db_path) as conn:
                 conn.execute('PRAGMA journal_mode=WAL;')
                 cursor = conn.cursor()
-                cursor.execute('INSERT INTO projects (name, researcher_name) VALUES (?, ?)', (name, researcher_name))
+                project_id = str(uuid.uuid4())
+                cursor.execute('INSERT INTO projects (id, name, researcher_name) VALUES (?, ?, ?)', (project_id, name, researcher_name))
                 conn.commit()
-                return cursor.lastrowid
+                return project_id
         except Exception as e:
             logger.error(f"Error creating project: {e}")
             return None
 
-    def create_experiment(self, project_id: int, name: str, ph_min: float, ph_max: float):
+    def create_experiment(self, project_id: str, name: str, ph_min: float, ph_max: float):
         try:
             with sqlite3.connect(self.db_path) as conn:
                 conn.execute('PRAGMA journal_mode=WAL;')
@@ -87,26 +100,42 @@ class SQLiteClient:
                 cursor.execute('''
                     UPDATE experiments SET status = 'completed' WHERE status = 'active'
                 ''')
+                experiment_id = str(uuid.uuid4())
                 cursor.execute('''
-                    INSERT INTO experiments (project_id, name, target_ph_min, target_ph_max, status) 
-                    VALUES (?, ?, ?, ?, 'active')
-                ''', (project_id, name, ph_min, ph_max))
+                    INSERT INTO experiments (id, project_id, name, target_ph_min, target_ph_max, status) 
+                    VALUES (?, ?, ?, ?, ?, 'active')
+                ''', (experiment_id, project_id, name, ph_min, ph_max))
                 conn.commit()
-                return cursor.lastrowid
+                return experiment_id
         except Exception as e:
             logger.error(f"Error creating experiment: {e}")
             return None
 
-    def log_telemetry(self, experiment_id: int, ph_data: dict):
+    def log_telemetry(self, experiment_id: str, ph_data: dict):
         try:
             with sqlite3.connect(self.db_path) as conn:
                 conn.execute('PRAGMA journal_mode=WAL;')
                 cursor = conn.cursor()
+                log_id = str(uuid.uuid4())
                 cursor.execute('''
-                    INSERT INTO telemetry (experiment_id, compartment_1_ph, compartment_2_ph, compartment_3_ph)
-                    VALUES (?, ?, ?, ?)
-                ''', (experiment_id, ph_data.get(1), ph_data.get(2), ph_data.get(3)))
+                    INSERT INTO telemetry (id, experiment_id, compartment_1_ph, compartment_2_ph, compartment_3_ph)
+                    VALUES (?, ?, ?, ?, ?)
+                ''', (log_id, experiment_id, ph_data.get(1), ph_data.get(2), ph_data.get(3)))
                 conn.commit()
         except Exception as e:
             logger.error(f"Error logging telemetry: {e}")
+
+    def log_event(self, experiment_id: str, level: str, message: str, compartment: int = None):
+        try:
+            with sqlite3.connect(self.db_path) as conn:
+                conn.execute('PRAGMA journal_mode=WAL;')
+                cursor = conn.cursor()
+                log_id = str(uuid.uuid4())
+                cursor.execute('''
+                    INSERT INTO experiment_logs (id, experiment_id, level, message, compartment)
+                    VALUES (?, ?, ?, ?, ?)
+                ''', (log_id, experiment_id, level, message, compartment))
+                conn.commit()
+        except Exception as e:
+            logger.error(f"Error logging event: {e}")
 

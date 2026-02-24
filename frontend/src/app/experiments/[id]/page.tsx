@@ -6,18 +6,25 @@ import Link from "next/link";
 import { ArrowLeft, Clock } from "lucide-react";
 import { CartesianGrid, Line, LineChart, XAxis, YAxis, Tooltip, ResponsiveContainer, Legend } from "recharts";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
-import { Telemetry } from "@/actions/dbActions";
+import { Telemetry, getExperimentLogs, ExperimentLog } from "@/actions/dbActions";
+import { EventLogWidget } from "@/components/EventLogWidget";
 
 export default function ExperimentHistory() {
     const { id } = useParams();
     const [data, setData] = useState<Telemetry[]>([]);
+    const [logs, setLogs] = useState<ExperimentLog[]>([]);
     const [loading, setLoading] = useState(true);
 
     useEffect(() => {
         async function fetchHistory() {
             try {
-                const res = await fetch(`/api/history?experiment_id=${id}`);
-                const result = await res.json();
+                // Fetch telemetry and logs in parallel
+                const [telemRes, historicalLogs] = await Promise.all([
+                    fetch(`/api/history?experiment_id=${id}`),
+                    getExperimentLogs(id as string)
+                ]);
+
+                const result = await telemRes.json();
                 if (result.success) {
                     // Format timestamps for the chart
                     const formatted = result.data.map((row: Telemetry) => ({
@@ -26,8 +33,10 @@ export default function ExperimentHistory() {
                     }));
                     setData(formatted);
                 }
+
+                setLogs(historicalLogs);
             } catch (err) {
-                console.error("Failed to load telemetry", err);
+                console.error("Failed to load telemetry or logs", err);
             } finally {
                 setLoading(false);
             }
@@ -82,6 +91,12 @@ export default function ExperimentHistory() {
                     )}
                 </CardContent>
             </Card>
+
+            {!loading && logs && (
+                <div className="mt-8">
+                    <EventLogWidget logs={logs as any[]} />
+                </div>
+            )}
         </main>
     );
 }

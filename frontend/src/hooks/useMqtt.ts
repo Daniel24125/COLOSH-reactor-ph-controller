@@ -9,7 +9,8 @@ const BROKER_URL = process.env.NEXT_PUBLIC_MQTT_URL || "ws://localhost:9001"; //
 export function useMqtt() {
     const [client, setClient] = useState<mqtt.MqttClient | null>(null);
     const [phData, setPhData] = useState<{ 1?: number; 2?: number; 3?: number }>({});
-    const [status, setStatus] = useState<{ health?: string; active_experiment?: number | null; db_connected?: boolean }>({});
+    const [status, setStatus] = useState<{ health?: string; active_experiment?: string | null; db_connected?: boolean }>({});
+    const [eventLogs, setEventLogs] = useState<{ id: string; level: string; message: string; timestamp: string; compartment: number | null }[]>([]);
     const [isConnected, setIsConnected] = useState(false);
 
     useEffect(() => {
@@ -21,6 +22,7 @@ export function useMqtt() {
             setIsConnected(true);
             mqttClient.subscribe("reactor/telemetry/ph");
             mqttClient.subscribe("reactor/status");
+            mqttClient.subscribe("reactor/events");
         });
 
         mqttClient.on("message", (topic, message) => {
@@ -30,6 +32,8 @@ export function useMqtt() {
                     setPhData(payload);
                 } else if (topic === "reactor/status") {
                     setStatus(payload);
+                } else if (topic === "reactor/events") {
+                    setEventLogs((prev) => [...prev, { id: Math.random().toString(36).substring(7), ...payload }].slice(-100));
                 }
             } catch (err) {
                 console.error("Error parsing MQTT message", err);
@@ -70,7 +74,7 @@ export function useMqtt() {
         }
     };
 
-    const updateAutoThresholds = (experimentId: number, phMin: number, phMax: number) => {
+    const updateAutoThresholds = (experimentId: string, phMin: number, phMax: number) => {
         if (client && isConnected) {
             client.publish(
                 "reactor/control/pump/auto",
@@ -89,5 +93,5 @@ export function useMqtt() {
         }
     };
 
-    return { isConnected, phData, status, dosePump, updateAutoThresholds, publishCommand };
+    return { isConnected, phData, status, eventLogs, dosePump, updateAutoThresholds, publishCommand };
 }
