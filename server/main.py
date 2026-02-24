@@ -34,10 +34,12 @@ class ReactorController:
         self.mqtt = MQTTClient(broker_url=mqtt_url, port=mqtt_port)
         self.mqtt.on_manual_control = self.handle_manual_control
         self.mqtt.on_auto_update = self.handle_auto_update
+        self.mqtt.on_experiment_config = self.handle_experiment_config
 
         # System state
         self.running = False
         self.active_experiment = None
+        self.last_dose_time = {1: 0, 2: 0, 3: 0}
 
     async def log_experiment_event(self, level: str, message: str, compartment: int = None):
         """Log event to DB and broadcast via MQTT."""
@@ -45,18 +47,29 @@ class ReactorController:
         if self.active_experiment:
             await asyncio.to_thread(self.sqlite.log_event, self.active_experiment['id'], level, message, compartment)
 
+    async def handle_experiment_config(self, payload: dict):
+        """Handle live configuration updates routed from MQTT."""
+        logger.info("Experiment config update received via MQTT. Applying dynamically.")
+        if not self.active_experiment or self.active_experiment['id'] == payload.get('experiment_id'):
+            self.active_experiment = self.sqlite.get_active_experiment()
+
     async def handle_manual_control(self, payload: dict):
         """Handle manual pump commands from MQTT."""
         pump_id = payload.get("pump_id")
         direction = payload.get("direction", "forward")
-        steps = payload.get("steps", 0)
+        steps = payload.get("steps", self.active_experiment.get("manual_dose_steps", 50) if self.active_experiment else 50)
         
         if pump_id in self.hw.pumps:
             logger.info(f"Manual Override: Dosing pump {pump_id} {steps} steps {direction}")
             await self.log_experiment_event("INFO", f"Manual Override: Pump {pump_id} activated for {steps} steps ({direction})", pump_id)
             pump = self.hw.pumps[pump_id]
+            max_time = self.active_experiment.get("max_pump_time_sec", 30) if self.active_experiment else 30
             # Offload blocking hardware call to thread
-            await asyncio.to_thread(pump.dose, direction, steps)
+            try:
+                await asyncio.to_thread(pump.dose, direction, steps, max_time)
+            except Exception as e:
+                logger.error(f"Manual dose failed: {e}")
+                await self.log_experiment_event("ERROR", f"Manual pump safety cutoff triggered: {e}", pump_id)
 
     async def handle_auto_update(self, payload: dict):
         """Update active experiment thresholds based on frontend config."""
@@ -69,19 +82,34 @@ class ReactorController:
         if not self.active_experiment:
             return
 
-        target_min = self.active_experiment.get('target_ph_min', 0)
+        target_min = self.active_experiment.get(f'c{compartment_id}_min_ph')
+        if target_min is None:
+            return
+
+        cooldown = self.active_experiment.get('mixing_cooldown_sec', 10)
+        
+        # Check cooldown
+        if time.time() - self.last_dose_time[compartment_id] < cooldown:
+            return
+
         # Assuming pumps dispense BASE (which raises pH).
         # If pH drops below minimum threshold -> add base.
         if current_ph < target_min:
             pump_id = compartment_id  # 1:1 mapping between compartment and pump
-            steps = 50  # Define a standard dose
+            steps = 50  # We can standardise or calculate this. Using 50 for now.
             direction = "forward"
             
             if pump_id in self.hw.pumps:
                 pump = self.hw.pumps[pump_id]
                 logger.info(f"Auto Dosing: Compartment {compartment_id} pH ({current_ph}) < {target_min}. Dosing {steps} steps.")
-                await self.log_experiment_event("INFO", f"Auto Dosing: pH {current_ph} < {target_min}. Pump activated for {steps} steps.", compartment_id)
-                await asyncio.to_thread(pump.dose, direction, steps)
+                await self.log_experiment_event("INFO", f"Auto Dosing: pH {current_ph} < {target_min}. Pump activated.", compartment_id)
+                self.last_dose_time[compartment_id] = time.time()
+                max_time = self.active_experiment.get("max_pump_time_sec", 30)
+                try:
+                    await asyncio.to_thread(pump.dose, direction, steps, max_time)
+                except Exception as e:
+                    logger.error(f"Auto dose failed: {e}")
+                    await self.log_experiment_event("ERROR", f"Auto pump safety cutoff triggered: {e}", pump_id)
 
     async def run_loop(self):
         self.running = True
@@ -125,8 +153,9 @@ class ReactorController:
                 }
                 self.mqtt.publish_status(status_data)
                 
-                # Run cycle roughly every 2 seconds
-                await asyncio.sleep(2)
+                # Run cycle roughly according to config frequency
+                sleep_duration = self.active_experiment.get('measurement_interval_sec', 1) if self.active_experiment else 2.0
+                await asyncio.sleep(sleep_duration)
                 
             except Exception as e:
                 logger.error(f"Error in main loop: {e}")

@@ -26,9 +26,16 @@ class MockStepper:
         self.pump_id = pump_id
         logger.debug(f"Initialized MockStepper for pump {pump_id}")
 
-    def dose(self, direction: str, steps: int):
+    def dose(self, direction: str, steps: int, max_time_sec: int = 30):
         """
         Mock doser prints to terminal instead of triggering GPIO.
         """
+        # Assume 1ms delay per step (2 delays per cycle)
+        expected_time = steps * 0.002
+        if expected_time > max_time_sec:
+            raise TimeoutError(f"Pump {self.pump_id} cutoff: Requested dose ({expected_time:.2f}s) exceeds maximum allowed time ({max_time_sec}s).")
+            
         direction_str = "forward" if direction in (1, "forward") else "reverse"
-        logger.info(f"[MOCK PUMP {self.pump_id}] Dosing {steps} steps in direction: {direction_str}")
+        logger.info(f"[MOCK PUMP {self.pump_id}] Dosing {steps} steps in direction: {direction_str} (Estimated {expected_time:.2f}s)")
+        # Simulate time taken
+        time.sleep(expected_time)

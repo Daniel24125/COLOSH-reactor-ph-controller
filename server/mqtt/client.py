@@ -15,6 +15,7 @@ class MQTTClient:
         # We'll set these up from main.py
         self.on_manual_control = None
         self.on_auto_update = None
+        self.on_experiment_config = None
         
         self.client = mqtt.Client(mqtt.CallbackAPIVersion.VERSION2, client_id=self.client_id)
         self.client.on_connect = self._on_connect
@@ -33,6 +34,7 @@ class MQTTClient:
             logger.info("Connected to MQTT Broker!")
             client.subscribe("reactor/control/pump/manual")
             client.subscribe("reactor/control/pump/auto")
+            client.subscribe("reactor/control/experiment")
         else:
             logger.error(f"Failed to connect, return code {reason_code}")
 
@@ -57,6 +59,11 @@ class MQTTClient:
             # Expected payload: {"experiment_id": 1, "ph_min": 6.8, "ph_max": 7.2}
             asyncio.run_coroutine_threadsafe(
                 self.on_auto_update(data),
+                asyncio.get_running_loop()
+            )
+        elif topic == "reactor/control/experiment" and self.on_experiment_config:
+            asyncio.run_coroutine_threadsafe(
+                self.on_experiment_config(data),
                 asyncio.get_running_loop()
             )
 

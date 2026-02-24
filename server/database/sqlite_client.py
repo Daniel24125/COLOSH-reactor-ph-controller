@@ -29,8 +29,16 @@ class SQLiteClient:
                         id TEXT PRIMARY KEY,
                         project_id TEXT,
                         name TEXT NOT NULL,
-                        target_ph_min REAL NOT NULL,
-                        target_ph_max REAL NOT NULL,
+                        measurement_interval_mins INTEGER DEFAULT 1,
+                        c1_min_ph REAL NOT NULL,
+                        c1_max_ph REAL NOT NULL,
+                        c2_min_ph REAL NOT NULL,
+                        c2_max_ph REAL NOT NULL,
+                        c3_min_ph REAL NOT NULL,
+                        c3_max_ph REAL NOT NULL,
+                        max_pump_time_sec INTEGER NOT NULL,
+                        mixing_cooldown_sec INTEGER NOT NULL,
+                        manual_dose_steps INTEGER NOT NULL,
                         status TEXT DEFAULT 'active',
                         created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
                         FOREIGN KEY (project_id) REFERENCES projects(id)
@@ -92,7 +100,7 @@ class SQLiteClient:
             logger.error(f"Error creating project: {e}")
             return None
 
-    def create_experiment(self, project_id: str, name: str, ph_min: float, ph_max: float):
+    def create_experiment(self, project_id: str, name: str, config: dict):
         try:
             with sqlite3.connect(self.db_path) as conn:
                 conn.execute('PRAGMA journal_mode=WAL;')
@@ -102,9 +110,19 @@ class SQLiteClient:
                 ''')
                 experiment_id = str(uuid.uuid4())
                 cursor.execute('''
-                    INSERT INTO experiments (id, project_id, name, target_ph_min, target_ph_max, status) 
-                    VALUES (?, ?, ?, ?, ?, 'active')
-                ''', (experiment_id, project_id, name, ph_min, ph_max))
+                    INSERT INTO experiments (
+                        id, project_id, name, measurement_interval_sec, c1_min_ph, c1_max_ph, 
+                        c2_min_ph, c2_max_ph, c3_min_ph, c3_max_ph, max_pump_time_sec, 
+                        mixing_cooldown_sec, manual_dose_steps, status
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'active')
+                ''', (
+                    experiment_id, project_id, name, config.get('measurement_interval_sec', 1),
+                    config.get('c1_min_ph'), config.get('c1_max_ph'),
+                    config.get('c2_min_ph'), config.get('c2_max_ph'),
+                    config.get('c3_min_ph'), config.get('c3_max_ph'),
+                    config.get('max_pump_time_sec'), config.get('mixing_cooldown_sec'), 
+                    config.get('manual_dose_steps')
+                ))
                 conn.commit()
                 return experiment_id
         except Exception as e:

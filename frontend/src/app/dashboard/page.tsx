@@ -115,8 +115,16 @@ export default function Dashboard() {
             projectName: isCreatingProject ? formData.get("projectName") : undefined,
             researcherName: isCreatingProject ? formData.get("researcherName") : undefined,
             experimentName: formData.get("experimentName"),
-            targetPhMin: parseFloat(formData.get("targetPhMin") as string),
-            targetPhMax: parseFloat(formData.get("targetPhMax") as string),
+            measurementIntervalMins: parseInt(formData.get("measurementIntervalMins") as string),
+            c1MinPh: parseFloat(formData.get("c1MinPh") as string),
+            c1MaxPh: parseFloat(formData.get("c1MaxPh") as string),
+            c2MinPh: parseFloat(formData.get("c2MinPh") as string),
+            c2MaxPh: parseFloat(formData.get("c2MaxPh") as string),
+            c3MinPh: parseFloat(formData.get("c3MinPh") as string),
+            c3MaxPh: parseFloat(formData.get("c3MaxPh") as string),
+            maxPumpTimeSec: parseInt(formData.get("maxPumpTimeSec") as string),
+            mixingCooldownSec: parseInt(formData.get("mixingCooldownSec") as string),
+            manualDoseSteps: parseInt(formData.get("manualDoseSteps") as string),
         };
 
         try {
@@ -129,8 +137,17 @@ export default function Dashboard() {
             if (res.ok) {
                 setShowSetup(false);
                 toast.success("Experiment started and auto-thresholds deployed!");
-                // MQTT Auto-Thresholds will be updated by Python backend detecting DB change, 
-                // or we could force a reload here if needed.
+                // Publish new configuration payload to MQTT so Python adapts instantly
+                publishCommand("reactor/control/experiment", {
+                    experiment_id: (await res.json()).experimentId,
+                    measurement_interval_mins: data.measurementIntervalMins,
+                    c1_min_ph: data.c1MinPh, c1_max_ph: data.c1MaxPh,
+                    c2_min_ph: data.c2MinPh, c2_max_ph: data.c2MaxPh,
+                    c3_min_ph: data.c3MinPh, c3_max_ph: data.c3MaxPh,
+                    max_pump_time_sec: data.maxPumpTimeSec,
+                    mixing_cooldown_sec: data.mixingCooldownSec,
+                    manual_dose_steps: data.manualDoseSteps
+                });
             } else {
                 toast.error("Failed to compile or start experiment on backend.");
             }
@@ -242,15 +259,47 @@ export default function Dashboard() {
                                     <label className="block text-sm font-medium text-neutral-400 mb-1">Experiment Name</label>
                                     <input required name="experimentName" type="text" className="w-full bg-neutral-950 border border-neutral-800 rounded-lg px-4 py-2 text-neutral-200 focus:outline-none focus:border-indigo-500 transition-colors" placeholder="e.g. Test Run Alpha" />
                                 </div>
-                                <div className="grid grid-cols-2 gap-4">
-                                    <div>
-                                        <label className="block text-sm font-medium text-neutral-400 mb-1">Target pH (Min)</label>
-                                        <input required name="targetPhMin" type="number" step="0.1" defaultValue="6.8" className="w-full bg-neutral-950 border border-neutral-800 rounded-lg px-4 py-2 text-neutral-200 focus:outline-none focus:border-indigo-500 transition-colors" />
-                                    </div>
-                                    <div>
-                                        <label className="block text-sm font-medium text-neutral-400 mb-1">Target pH (Max)</label>
-                                        <input required name="targetPhMax" type="number" step="0.1" defaultValue="7.2" className="w-full bg-neutral-950 border border-neutral-800 rounded-lg px-4 py-2 text-neutral-200 focus:outline-none focus:border-indigo-500 transition-colors" />
-                                    </div>
+
+                                <div className="border border-neutral-800 rounded-lg overflow-hidden">
+                                    <details className="group">
+                                        <summary className="bg-neutral-900/50 px-4 py-3 cursor-pointer text-sm font-medium text-neutral-300 hover:text-indigo-400 transition-colors flex items-center justify-between outline-none">
+                                            Hardware Adaptations & Configuration
+                                            <span className="text-neutral-500 group-open:rotate-180 transition-transform">&darr;</span>
+                                        </summary>
+                                        <div className="p-4 space-y-4 bg-neutral-950/30">
+                                            <div>
+                                                <label className="block text-xs font-medium text-neutral-400 mb-1">Data Acquisition Interval (Minutes)</label>
+                                                <input required name="measurementIntervalMins" type="number" step="1" min="1" defaultValue="1" className="w-full bg-neutral-950 border border-neutral-800 rounded-lg px-3 py-1.5 text-neutral-200 text-sm focus:outline-none focus:border-indigo-500" />
+                                                <p className="text-[10px] text-neutral-600 mt-1">1 measurement / [value] minutes</p>
+                                            </div>
+
+                                            <div className="pt-2 border-t border-neutral-800/50">
+                                                <span className="text-xs font-medium text-indigo-400/80 mb-2 block">Compartment pH Thresholds</span>
+                                                {[1, 2, 3].map(id => (
+                                                    <div key={`c${id}`} className="grid grid-cols-[auto_1fr_1fr] items-center gap-2 mb-2">
+                                                        <span className="text-xs text-neutral-500 w-6">C{id}</span>
+                                                        <input required name={`c${id}MinPh`} type="number" step="0.1" defaultValue="6.8" placeholder="Min" className="w-full bg-neutral-950 border border-neutral-800 rounded-lg px-2 py-1 text-neutral-200 text-xs focus:outline-none focus:border-indigo-500" />
+                                                        <input required name={`c${id}MaxPh`} type="number" step="0.1" defaultValue="7.2" placeholder="Max" className="w-full bg-neutral-950 border border-neutral-800 rounded-lg px-2 py-1 text-neutral-200 text-xs focus:outline-none focus:border-indigo-500" />
+                                                    </div>
+                                                ))}
+                                            </div>
+
+                                            <div className="pt-2 border-t border-neutral-800/50 grid grid-cols-2 gap-3">
+                                                <div>
+                                                    <label className="block text-[10px] text-neutral-500 mb-1">Max Pump Time (Sec)</label>
+                                                    <input required name="maxPumpTimeSec" type="number" defaultValue="30" className="w-full bg-neutral-950 border border-neutral-800 rounded-lg px-2 py-1 text-neutral-200 text-xs focus:outline-none focus:border-indigo-500" />
+                                                </div>
+                                                <div>
+                                                    <label className="block text-[10px] text-neutral-500 mb-1">Mixing Cooldown (Sec)</label>
+                                                    <input required name="mixingCooldownSec" type="number" defaultValue="10" className="w-full bg-neutral-950 border border-neutral-800 rounded-lg px-2 py-1 text-neutral-200 text-xs focus:outline-none focus:border-indigo-500" />
+                                                </div>
+                                                <div className="col-span-2">
+                                                    <label className="block text-[10px] text-neutral-500 mb-1">Manual Dose Limit (Steps)</label>
+                                                    <input required name="manualDoseSteps" type="number" defaultValue="50" className="w-full bg-neutral-950 border border-neutral-800 rounded-lg px-2 py-1 text-neutral-200 text-xs focus:outline-none focus:border-indigo-500" />
+                                                </div>
+                                            </div>
+                                        </div>
+                                    </details>
                                 </div>
                                 <div className="flex gap-3 pt-4">
                                     <button type="button" onClick={() => setShowSetup(false)} className="flex-1 px-4 py-2 text-neutral-400 bg-neutral-800 hover:bg-neutral-700/80 rounded-lg transition-colors border border-neutral-700/50">

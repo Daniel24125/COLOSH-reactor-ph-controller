@@ -8,9 +8,20 @@ const dbPath = path.resolve('../server/reactor.db');
 
 export async function POST(req: Request) {
     try {
-        const { projectId, projectName, researcherName, experimentName, targetPhMin, targetPhMax } = await req.json();
+        const {
+            projectId, projectName, researcherName, experimentName,
+            measurementIntervalMins, c1MinPh, c1MaxPh, c2MinPh, c2MaxPh, c3MinPh, c3MaxPh,
+            maxPumpTimeSec, mixingCooldownSec, manualDoseSteps
+        } = await req.json();
 
-        if (!experimentName || targetPhMin === undefined || targetPhMax === undefined) {
+        if (
+            !experimentName ||
+            measurementIntervalMins === undefined ||
+            c1MinPh === undefined || c1MaxPh === undefined ||
+            c2MinPh === undefined || c2MaxPh === undefined ||
+            c3MinPh === undefined || c3MaxPh === undefined ||
+            maxPumpTimeSec === undefined || mixingCooldownSec === undefined || manualDoseSteps === undefined
+        ) {
             return NextResponse.json({ error: 'Missing required experiment fields' }, { status: 400 });
         }
 
@@ -37,8 +48,16 @@ export async function POST(req: Request) {
                 id TEXT PRIMARY KEY,
                 project_id TEXT,
                 name TEXT NOT NULL,
-                target_ph_min REAL NOT NULL,
-                target_ph_max REAL NOT NULL,
+                measurement_interval_mins INTEGER DEFAULT 1,
+                c1_min_ph REAL NOT NULL,
+                c1_max_ph REAL NOT NULL,
+                c2_min_ph REAL NOT NULL,
+                c2_max_ph REAL NOT NULL,
+                c3_min_ph REAL NOT NULL,
+                c3_max_ph REAL NOT NULL,
+                max_pump_time_sec INTEGER NOT NULL,
+                mixing_cooldown_sec INTEGER NOT NULL,
+                manual_dose_steps INTEGER NOT NULL,
                 status TEXT DEFAULT 'active',
                 created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
                 FOREIGN KEY (project_id) REFERENCES projects(id)
@@ -78,8 +97,15 @@ export async function POST(req: Request) {
         // 3. Create new Experiment
         const experimentId = crypto.randomUUID();
         await db.run(
-            'INSERT INTO experiments (id, project_id, name, target_ph_min, target_ph_max, status) VALUES (?, ?, ?, ?, ?, ?)',
-            [experimentId, activeProjectId, experimentName, targetPhMin, targetPhMax, 'active']
+            `INSERT INTO experiments (
+                id, project_id, name, measurement_interval_mins, c1_min_ph, c1_max_ph, c2_min_ph, c2_max_ph, c3_min_ph, c3_max_ph, 
+                max_pump_time_sec, mixing_cooldown_sec, manual_dose_steps, status
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+            [
+                experimentId, activeProjectId, experimentName, measurementIntervalMins || 1,
+                c1MinPh, c1MaxPh, c2MinPh, c2MaxPh, c3MinPh, c3MaxPh,
+                maxPumpTimeSec, mixingCooldownSec, manualDoseSteps, 'active'
+            ]
         );
 
         await db.close();

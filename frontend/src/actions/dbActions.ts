@@ -13,8 +13,16 @@ export type Experiment = {
     id: string;
     project_id: string;
     name: string;
-    target_ph_min: number;
-    target_ph_max: number;
+    measurement_interval_sec: number;
+    c1_min_ph: number;
+    c1_max_ph: number;
+    c2_min_ph: number;
+    c2_max_ph: number;
+    c3_min_ph: number;
+    c3_max_ph: number;
+    max_pump_time_sec: number;
+    mixing_cooldown_sec: number;
+    manual_dose_steps: number;
     status: string;
     created_at: string;
 };

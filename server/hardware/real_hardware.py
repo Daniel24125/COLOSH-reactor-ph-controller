@@ -67,7 +67,7 @@ class RealStepper:
         except Exception as e:
             logger.error(f"Failed to initialize GPIO for RealStepper {pump_id}: {e}")
 
-    def dose(self, direction: str, steps: int):
+    def dose(self, direction: str, steps: int, max_time_sec: int = 30):
         """
         Dose by sending pulses to the Step pin and setting the Dir pin.
         direction: "forward" or "reverse"
@@ -76,18 +76,27 @@ class RealStepper:
             logger.error(f"Cannot dose pump {self.pump_id}: GPIO not initialized.")
             return
 
+        expected_time = steps * (self.delay * 2)
+        if expected_time > max_time_sec:
+            raise TimeoutError(f"Pump {self.pump_id} cutoff: Requested dose ({expected_time:.2f}s) exceeds maximum allowed time ({max_time_sec}s).")
+
         try:
             dir_val = 1 if direction in (1, "forward") else 0
             lgpio.gpio_write(self.h_gpio, self.dir_pin, dir_val)
             
             logger.info(f"[REAL PUMP {self.pump_id}] Dosing {steps} steps in direction: {direction}")
-            for _ in range(steps):
+            start_time = time.time()
+            for i in range(steps):
+                if time.time() - start_time > max_time_sec:
+                     raise TimeoutError(f"Pump {self.pump_id} forcibly stopped. Exceeded max run time of {max_time_sec}s at step {i}/{steps}")
+                
                 lgpio.gpio_write(self.h_gpio, self.step_pin, 1)
                 time.sleep(self.delay)
                 lgpio.gpio_write(self.h_gpio, self.step_pin, 0)
                 time.sleep(self.delay)
         except Exception as e:
             logger.error(f"Hardware error during dozing pump {self.pump_id}: {e}")
+            raise e
 
     def __del__(self):
         try:
