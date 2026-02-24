@@ -81,5 +81,13 @@ export function useMqtt() {
         }
     };
 
-    return { isConnected, phData, status, dosePump, updateAutoThresholds };
+    const publishCommand = (topic: string, payload: object) => {
+        if (client && isConnected) {
+            client.publish(topic, JSON.stringify(payload));
+        } else {
+            console.warn("Cannot publish command, MQTT not connected");
+        }
+    };
+
+    return { isConnected, phData, status, dosePump, updateAutoThresholds, publishCommand };
 }

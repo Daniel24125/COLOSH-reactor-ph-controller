@@ -3,7 +3,7 @@ import logging
 import time
 import json
 from hardware import get_hardware
-from database import SQLiteClient, InfluxClient
+from database import SQLiteClient
 from mqtt import MQTTClient
 
 # Setup basic logging
@@ -20,7 +20,6 @@ class ReactorController:
         
         # 2. Initialize DBs
         self.sqlite = SQLiteClient()
-        self.influx = InfluxClient()
         
         # 3. Initialize MQTT
         self.mqtt = MQTTClient()
@@ -42,15 +41,6 @@ class ReactorController:
             pump = self.hw.pumps[pump_id]
             # Offload blocking hardware call to thread
             await asyncio.to_thread(pump.dose, direction, steps)
-            
-            # Log IF there is an active experiment
-            if self.active_experiment:
-                self.influx.log_pump_action(
-                    self.active_experiment['id'], 
-                    pump_id, 
-                    direction, 
-                    steps
-                )
 
     async def handle_auto_update(self, payload: dict):
         """Update active experiment thresholds based on frontend config."""
@@ -75,12 +65,6 @@ class ReactorController:
                 pump = self.hw.pumps[pump_id]
                 logger.info(f"Auto Dosing: Compartment {compartment_id} pH ({current_ph}) < {target_min}. Dosing {steps} steps.")
                 await asyncio.to_thread(pump.dose, direction, steps)
-                self.influx.log_pump_action(
-                    self.active_experiment['id'], 
-                    pump_id, 
-                    direction, 
-                    steps
-                )
 
     async def run_loop(self):
         self.running = True
@@ -99,12 +83,16 @@ class ReactorController:
                     ph_val = await asyncio.to_thread(self.hw.adc.read_ph, i)
                     ph_data[i] = ph_val
                     
-                    # Log to Influx if experiment running
-                    if self.active_experiment:
-                        self.influx.log_ph(self.active_experiment['id'], i, ph_val)
-                    
                     # 3. Check Auto Dosing
                     await self.dosing_logic(i, ph_val)
+                
+                # Log telemetry to SQLite if experiment running
+                if self.active_experiment:
+                    await asyncio.to_thread(
+                        self.sqlite.log_telemetry, 
+                        self.active_experiment['id'], 
+                        ph_data
+                    )
                 
                 # 4. Publish Telemetry
                 self.mqtt.publish_telemetry(ph_data)
@@ -126,7 +114,6 @@ class ReactorController:
     def stop(self):
         self.running = False
         self.mqtt.disconnect()
-        self.influx.close()
         logger.info("Reactor Controller Stopped.")
 
 async def main():
