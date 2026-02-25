@@ -143,11 +143,26 @@ class ReactorController:
             return
 
         pump = self.hw.pumps[pump_id]
-        steps = self.DEFAULT_DOSE_STEPS
         max_time = self.active_experiment.get("max_pump_time_sec", self.DEFAULT_MAX_PUMP_SEC)
 
-        logger.info(f"Auto dosing: compartment {compartment_id} pH ({current_ph}) < {target_min}. Dosing {steps} steps.")
-        await self._log_event("INFO", f"Auto dosing: pH {current_ph} < {target_min}. Pump activated.", compartment_id)
+        # Proportional dosing: steps scale with the magnitude of the pH error.
+        # calculate_steps derives max_steps from max_time using the pump's own
+        # SEC_PER_STEP constant — so we can never exceed the TimeoutError guard
+        # inside pump.dose().
+        ph_error = target_min - current_ph
+        steps = self.ph_ctrl.calculate_steps(ph_error, max_time)
+        volume_ml = self.ph_ctrl.calculate_volume_ml(steps)
+
+        logger.info(
+            f"Auto dosing: compartment {compartment_id} pH ({current_ph}) < {target_min} "
+            f"[error={ph_error:.3f}]. Dosing {steps} steps (~{volume_ml} mL)."
+        )
+        await self._log_event(
+            "INFO",
+            f"Auto dosing: pH {current_ph} < {target_min} (Δ{ph_error:.2f}). "
+            f"Pump activated: {steps} steps ≈ {volume_ml} mL.",
+            compartment_id
+        )
         try:
             await asyncio.to_thread(pump.dose, "forward", steps, max_time)
             # Record dose time only after a confirmed successful dose
