@@ -427,6 +427,9 @@ export default function Dashboard() {
                                             contentStyle={{ backgroundColor: '#171717', borderColor: '#262626', color: '#e5e5e5' }}
                                             itemStyle={{ color: '#e5e5e5' }}
                                         />
+                                        <Legend
+                                            wrapperStyle={{ color: '#a3a3a3', fontSize: 12, paddingTop: 8 }}
+                                        />
                                     </LineChart>
                                 </ResponsiveContainer>
                             </div>
