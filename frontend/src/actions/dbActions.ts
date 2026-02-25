@@ -85,6 +85,20 @@ export async function getProjectById(id: string): Promise<Project | null> {
     }
 }
 
+export async function getExperimentById(id: string): Promise<Experiment | null> {
+    try {
+        const db = await getDb();
+        const experiment = await db.get<Experiment>(
+            "SELECT * FROM experiments WHERE id = ?",
+            [id]
+        );
+        return experiment || null;
+    } catch (error) {
+        console.error("Failed to fetch experiment:", error);
+        return null;
+    }
+}
+
 export async function createProject(name: string, researcher_name: string): Promise<Project | null> {
     try {
         const db = await getDb();

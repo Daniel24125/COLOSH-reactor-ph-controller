@@ -3,9 +3,10 @@
 import { useMqtt } from "@/hooks/useMqtt";
 import { useState, useEffect } from "react";
 import { useUser } from "@/context/UserContext";
-import { Project, getProjects, stopExperiment, getTelemetry, Telemetry, getActiveExperiment } from "@/actions/dbActions";
+import { Project, Experiment, getProjects, stopExperiment, getTelemetry, Telemetry, getActiveExperiment } from "@/actions/dbActions";
 import { getCalibrationStatus } from "@/actions/calibrationActions";
-import { Droplet, Activity, Database, AlertCircle, PlayCircle, Square } from "lucide-react";
+import { useElapsedTime } from "@/hooks/useElapsedTime";
+import { Droplet, Activity, Database, AlertCircle, PlayCircle, Square, Timer } from "lucide-react";
 import { CartesianGrid, Line, LineChart, XAxis, YAxis, Tooltip, ResponsiveContainer, Legend } from "recharts";
 import { toast } from "sonner";
 import { CreateProjectDialog } from "@/components/CreateProjectDialog";
@@ -30,11 +31,15 @@ export default function Dashboard() {
     // Calibration State
     const [calibrationWarning, setCalibrationWarning] = useState<string | null>(null);
     const [isCalibrationValid, setIsCalibrationValid] = useState(true);
-
+    // Active experiment state - sourced from DB on mount for instant render
+    const [activeExperiment, setActiveExperiment] = useState<Experiment | null>(null);
+    const elapsedTime = useElapsedTime(activeExperiment?.created_at ?? null);
     // Fetch initial status from DB so we don't wait for periodic MQTT ping
     useEffect(() => {
         getActiveExperiment().then(exp => {
             if (exp) {
+                setActiveExperiment(exp);
+                // Also prime the MQTT status so other parts of the dashboard react
                 setStatus(prev => ({
                     ...prev,
                     active_experiment: exp.id,
@@ -116,15 +121,16 @@ export default function Dashboard() {
     };
 
     const handleStopExperiment = async () => {
-        if (!status.active_experiment) return;
+        if (!activeExperiment) return;
 
         setIsSubmitting(true);
         try {
-            const success = await stopExperiment(status.active_experiment);
+            const success = await stopExperiment(activeExperiment.id);
             if (success) {
-                // Publish the stop command so the Python backend loop shuts down logging
                 publishCommand("reactor/control/pump/auto", { action: "stop" });
-                toast.success(`Experiment #${status.active_experiment} stopped successfully`);
+                toast.success(`Experiment "${activeExperiment.name}" stopped successfully`);
+                setActiveExperiment(null);
+                setStatus(prev => ({ ...prev, active_experiment: null }));
             } else {
                 toast.error("Database failed to mark experiment as completed.");
             }
@@ -166,11 +172,16 @@ export default function Dashboard() {
             });
 
             if (res.ok) {
+                const { experimentId } = await res.json();
                 setShowSetup(false);
                 toast.success("Experiment started and auto-thresholds deployed!");
+                // Refresh active experiment from DB so the banner and timer appear immediately
+                getActiveExperiment().then(exp => {
+                    if (exp) setActiveExperiment(exp);
+                });
                 // Publish new configuration payload to MQTT so Python adapts instantly
                 publishCommand("reactor/control/experiment", {
-                    experiment_id: (await res.json()).experimentId,
+                    experiment_id: experimentId,
                     measurement_interval_mins: data.measurementIntervalMins,
                     c1_min_ph: data.c1MinPh, c1_max_ph: data.c1MaxPh,
                     c2_min_ph: data.c2MinPh, c2_max_ph: data.c2MaxPh,
@@ -216,7 +227,7 @@ export default function Dashboard() {
                 )}
 
                 {/* Active Experiment Banner */}
-                {status.active_experiment ? (
+                {activeExperiment ? (
                     <div className="bg-indigo-950/30 border border-indigo-800/50 rounded-2xl p-4 flex flex-col md:flex-row md:items-center justify-between gap-4">
                         <div className="flex items-center gap-3">
                             <div className="bg-indigo-500/20 p-2 rounded-lg">
@@ -224,10 +235,16 @@ export default function Dashboard() {
                             </div>
                             <div>
                                 <p className="text-sm text-indigo-400/80 font-medium">Active Experiment</p>
-                                <p className="text-neutral-200">ID: {status.active_experiment}</p>
+                                <p className="text-neutral-200 font-medium">{activeExperiment.name}</p>
                             </div>
                         </div>
                         <div className="flex items-center gap-3">
+                            {elapsedTime && (
+                                <div className="flex items-center gap-1.5 text-sm px-3 py-1.5 bg-neutral-900 text-neutral-300 rounded-full border border-neutral-700 font-mono tabular-nums">
+                                    <Timer className="w-3.5 h-3.5 text-indigo-400" />
+                                    {elapsedTime}
+                                </div>
+                            )}
                             <button
                                 onClick={handleStopExperiment}
                                 disabled={isSubmitting}
