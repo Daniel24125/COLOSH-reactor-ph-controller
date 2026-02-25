@@ -1,7 +1,7 @@
 "use client";
 
 import { useMqtt } from "@/hooks/useMqtt";
-import { useState, useEffect } from "react";
+import { useState, useEffect, useCallback } from "react";
 import { useUser } from "@/context/UserContext";
 import { Project, Experiment, getProjects, stopExperiment, getTelemetry, Telemetry, getActiveExperiment } from "@/actions/dbActions";
 import { getCalibrationStatus } from "@/actions/calibrationActions";
@@ -100,27 +100,27 @@ export default function Dashboard() {
     }, [loggedTelemetry, status.active_experiment]);
 
     // Fetch projects on mount for widget and modal
-    const fetchProjectsList = () => {
+    const fetchProjectsList = useCallback(() => {
         getProjects().then(data => {
             setProjects(data);
             if (data.length > 0 && !selectedProjectId) {
                 setSelectedProjectId(data[0].id.toString());
             } else if (data.length === 0) {
-                setIsCreatingProject(true); // Force create if no projects exist
+                setIsCreatingProject(true);
             }
         });
-    };
+    }, [selectedProjectId]);
 
     useEffect(() => {
         fetchProjectsList();
     }, []);
 
-    const handleManualDose = (pumpId: number) => {
-        dosePump(pumpId, "forward", 50); // 50 steps default dose
+    const handleManualDose = useCallback((pumpId: number) => {
+        dosePump(pumpId, "forward", 50);
         toast.info(`Override: Activated Pump ${pumpId} for 50 steps`);
-    };
+    }, [dosePump]);
 
-    const handleStopExperiment = async () => {
+    const handleStopExperiment = useCallback(async () => {
         if (!activeExperiment) return;
 
         setIsSubmitting(true);
@@ -140,7 +140,7 @@ export default function Dashboard() {
         } finally {
             setIsSubmitting(false);
         }
-    };
+    }, [activeExperiment, publishCommand, setStatus]);
 
     const handleSetupSubmit = async (e: React.FormEvent<HTMLFormElement>) => {
         e.preventDefault();

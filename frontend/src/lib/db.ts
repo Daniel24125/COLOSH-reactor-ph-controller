@@ -2,7 +2,6 @@ import sqlite3 from "sqlite3";
 import { open, Database } from "sqlite";
 import path from "path";
 
-// Support cross-platform pathing from the env, fallback to old hardcoded path
 const dbPath = process.env.DATABASE_URL
     ? path.resolve(process.env.DATABASE_URL)
     : path.resolve("../server/reactor.db");
@@ -15,10 +14,10 @@ export async function getDb() {
             filename: dbPath,
             driver: sqlite3.Database,
         });
+        // Run PRAGMAs once at connection time, not on every query
+        await dbInstance.exec("PRAGMA journal_mode=WAL;");
+        await dbInstance.exec("PRAGMA foreign_keys=ON;");
     }
-    // Enforce Write-Ahead Logging to prevent "database is locked" errors
-    // Enforce Write-Ahead Logging and Foreign Keys
-    await dbInstance.exec("PRAGMA journal_mode=WAL;");
-    await dbInstance.exec("PRAGMA foreign_keys = ON;");
     return dbInstance;
 }
+

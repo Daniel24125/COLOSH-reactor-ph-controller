@@ -1,7 +1,6 @@
 "use server";
 
 import { getDb } from "@/lib/db";
-import mqtt from "mqtt";
 
 export type CalibrationStatus = {
     requiresCalibration: boolean;
@@ -56,22 +55,8 @@ export async function saveCalibration(compartment: number, slope: number, interc
             "INSERT INTO calibrations (compartment, slope, intercept, researcher) VALUES (?, ?, ?, ?)",
             [compartment, slope, intercept, researcher]
         );
-
-        // Notify python backend via MQTT to reload calibrations
-        const brokerUrl = process.env.MQTT_BROKER_URL || "mqtt://localhost:1883";
-        const client = mqtt.connect(brokerUrl);
-
-        client.on('connect', () => {
-            client.publish("reactor/control/calibration", JSON.stringify({ action: "reload_calibration" }), () => {
-                client.end();
-            });
-        });
-
-        client.on('error', (err) => {
-            console.error("MQTT publish error in saveCalibration:", err);
-            client.end();
-        });
-
+        // The client (calibration/page.tsx) is responsible for publishing
+        // the reload_calibration command via the MQTT context after this returns.
         return true;
     } catch (error) {
         console.error("Failed to save calibration:", error);

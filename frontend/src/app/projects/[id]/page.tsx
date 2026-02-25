@@ -56,12 +56,19 @@ export default async function ProjectDetail({ params }: { params: Promise<{ id: 
                                         </CardDescription>
                                     </CardHeader>
                                     <CardContent>
-                                        <div className="flex items-center justify-between text-sm">
-                                            <div className="flex items-center gap-2 text-neutral-400">
-                                                <Target className="w-4 h-4" />
-                                                Target pH: {exp.target_ph_min} - {exp.target_ph_max}
-                                            </div>
-                                            <div className="text-neutral-500 text-xs text-right">
+                                        <div className="space-y-1 text-xs text-neutral-500">
+                                            {[
+                                                { label: "C1", min: exp.c1_min_ph, max: exp.c1_max_ph },
+                                                { label: "C2", min: exp.c2_min_ph, max: exp.c2_max_ph },
+                                                { label: "C3", min: exp.c3_min_ph, max: exp.c3_max_ph },
+                                            ].map(({ label, min, max }) => (
+                                                <div key={label} className="flex items-center gap-2">
+                                                    <span className="w-6 font-medium text-neutral-600">{label}</span>
+                                                    <Target className="w-3 h-3" />
+                                                    <span>{min} – {max} pH</span>
+                                                </div>
+                                            ))}
+                                            <div className="pt-1 text-neutral-600">
                                                 {new Date(exp.created_at).toLocaleString()}
                                             </div>
                                         </div>

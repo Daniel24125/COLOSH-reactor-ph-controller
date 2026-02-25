@@ -7,14 +7,14 @@ import { useRouter } from "next/navigation";
 import { saveCalibration, getCalibrationHistory, CalibrationRecord } from "@/actions/calibrationActions";
 import { getActiveExperiment } from "@/actions/dbActions";
 import { toast } from "sonner";
-import { Beaker, Save, Lock, ArrowLeft, AlertCircle } from "lucide-react";
+import { Beaker, Save, Lock, ArrowLeft } from "lucide-react";
 import Link from "next/link";
 import mqtt from "mqtt";
 
 export default function CalibrationWizard() {
     const router = useRouter();
+    const { publishCommand } = useMqtt();
     const { user } = useUser();
-    const { status, isConnected } = useMqtt();
 
     const [activeCompartment, setActiveCompartment] = useState<number>(1);
     const [rawVoltage, setRawVoltage] = useState<number | null>(null);
@@ -38,17 +38,19 @@ export default function CalibrationWizard() {
     const mqttClientRef = useRef<mqtt.MqttClient | null>(null);
 
     useEffect(() => {
-        // Prevent access if experiment active
+        // Only check DB — don't add status.active_experiment as a dep
+        // (it changes on every MQTT tick and would re-run this guard repeatedly)
         getActiveExperiment().then(exp => {
-            if (exp || status.active_experiment) {
+            if (exp) {
                 toast.error("Cannot calibrate while an experiment is active.");
                 router.push("/dashboard");
             } else {
                 setIsCheckingActive(false);
-                fetchHistory(); // Fetch initial history once verified
+                fetchHistory();
             }
         });
-    }, [router, status.active_experiment]);
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [router]);
 
     // Isolated MQTT connection for raw voltage to avoid polluting the main hook context
     // and easily managing the start/stop lifecycle.
@@ -112,11 +114,7 @@ export default function CalibrationWizard() {
             return;
         }
 
-        // Calculate Slope and Intercept
-        // Slope = (v2 - v1) / (ph2 - ph1) => Volts per pH
         const slope = (v2 - v1) / (ph2 - ph1);
-        // Intercept = V(pH=7), since Nernst is centered at pH 7.
-        // Intercept = v1 - Slope * (ph1 - 7.0)
         const intercept = v1 - (slope * (ph1 - 7.0));
 
         setIsSaving(true);
@@ -130,12 +128,13 @@ export default function CalibrationWizard() {
 
         if (success) {
             toast.success(`Compartment ${activeCompartment} calibrated successfully.`);
-            // Reset for next calibration
+            // Notify the Python backend to reload calibrations via the shared MQTT context
+            publishCommand("reactor/control/calibration", { action: "reload_calibration" });
             setV1(null);
             setV2(null);
             setPh1(7.0);
             setPh2(4.0);
-            fetchHistory(); // Refresh table
+            fetchHistory();
         } else {
             toast.error("Failed to save calibration data.");
         }

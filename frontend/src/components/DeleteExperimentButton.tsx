@@ -17,7 +17,7 @@ import {
 } from "@/components/ui/alert-dialog";
 import { toast } from "sonner";
 
-export function DeleteExperimentButton({ id, experimentName }: { id: number, experimentName: string }) {
+export function DeleteExperimentButton({ id, experimentName }: { id: string, experimentName: string }) {
     const router = useRouter();
     const [isDeleting, setIsDeleting] = useState(false);
 
