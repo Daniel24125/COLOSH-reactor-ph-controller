@@ -9,6 +9,7 @@ const BROKER_URL = process.env.NEXT_PUBLIC_MQTT_URL || "ws://localhost:9001"; //
 export function useMqtt() {
     const [client, setClient] = useState<mqtt.MqttClient | null>(null);
     const [phData, setPhData] = useState<{ 1?: number; 2?: number; 3?: number }>({});
+    const [loggedTelemetry, setLoggedTelemetry] = useState<{ 1?: number; 2?: number; 3?: number }>({});
     const [status, setStatus] = useState<{ health?: string; active_experiment?: string | null; db_connected?: boolean }>({});
     const [eventLogs, setEventLogs] = useState<{ id: string; level: string; message: string; timestamp: string; compartment: number | null }[]>([]);
     const [isConnected, setIsConnected] = useState(false);
@@ -21,6 +22,7 @@ export function useMqtt() {
             console.log("MQTT Connected");
             setIsConnected(true);
             mqttClient.subscribe("reactor/telemetry/ph");
+            mqttClient.subscribe("reactor/telemetry/logged");
             mqttClient.subscribe("reactor/status");
             mqttClient.subscribe("reactor/events");
         });
@@ -30,6 +32,8 @@ export function useMqtt() {
                 const payload = JSON.parse(message.toString());
                 if (topic === "reactor/telemetry/ph") {
                     setPhData(payload);
+                } else if (topic === "reactor/telemetry/logged") {
+                    setLoggedTelemetry(payload);
                 } else if (topic === "reactor/status") {
                     setStatus(payload);
                 } else if (topic === "reactor/events") {
@@ -93,5 +97,5 @@ export function useMqtt() {
         }
     };
 
-    return { isConnected, phData, status, eventLogs, dosePump, updateAutoThresholds, publishCommand };
+    return { isConnected, phData, loggedTelemetry, status, setStatus, eventLogs, dosePump, updateAutoThresholds, publishCommand };
 }

@@ -13,7 +13,7 @@ export type Experiment = {
     id: string;
     project_id: string;
     name: string;
-    measurement_interval_sec: number;
+    measurement_interval_mins: number;
     c1_min_ph: number;
     c1_max_ph: number;
     c2_min_ph: number;
@@ -55,6 +55,19 @@ export async function getProjects(): Promise<Project[]> {
     } catch (error) {
         console.error("Failed to fetch projects:", error);
         return [];
+    }
+}
+
+export async function getActiveExperiment(): Promise<Experiment | null> {
+    try {
+        const db = await getDb();
+        const experiment = await db.get<Experiment>(
+            "SELECT * FROM experiments WHERE status = 'active' ORDER BY id DESC LIMIT 1"
+        );
+        return experiment || null;
+    } catch (error) {
+        console.error("Failed to fetch active experiment:", error);
+        return null;
     }
 }
 

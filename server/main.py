@@ -40,6 +40,7 @@ class ReactorController:
         self.running = False
         self.active_experiment = None
         self.last_dose_time = {1: 0, 2: 0, 3: 0}
+        self.last_measurement_time = 0
 
     async def log_experiment_event(self, level: str, message: str, compartment: int = None):
         """Log event to DB and broadcast via MQTT."""
@@ -135,13 +136,17 @@ class ReactorController:
                         logger.error(f"Error reading pH for compartment {i}: {e}")
                         await self.log_experiment_event("ERROR", f"Failed to read pH sensor: {str(e)}", i)
                 
-                # Log telemetry to SQLite if experiment running
+                # Log telemetry to SQLite if experiment running and interval elapsed
                 if self.active_experiment:
-                    await asyncio.to_thread(
-                        self.sqlite.log_telemetry, 
-                        self.active_experiment['id'], 
-                        ph_data
-                    )
+                    interval_mins = self.active_experiment.get('measurement_interval_mins', 1)
+                    if time.time() - self.last_measurement_time >= interval_mins * 60:
+                        await asyncio.to_thread(
+                            self.sqlite.log_telemetry, 
+                            self.active_experiment['id'], 
+                            ph_data
+                        )
+                        self.mqtt.publish_logged_telemetry(ph_data)
+                        self.last_measurement_time = time.time()
                 
                 # 4. Publish Telemetry
                 self.mqtt.publish_telemetry(ph_data)
@@ -153,8 +158,8 @@ class ReactorController:
                 }
                 self.mqtt.publish_status(status_data)
                 
-                # Run cycle roughly according to config frequency
-                sleep_duration = self.active_experiment.get('measurement_interval_sec', 1) if self.active_experiment else 2.0
+                # Run cycle at a fixed rate (e.g., 2.0s) for responsive dosing
+                sleep_duration = 1
                 await asyncio.sleep(sleep_duration)
                 
             except Exception as e:

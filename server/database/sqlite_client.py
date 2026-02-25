@@ -111,12 +111,12 @@ class SQLiteClient:
                 experiment_id = str(uuid.uuid4())
                 cursor.execute('''
                     INSERT INTO experiments (
-                        id, project_id, name, measurement_interval_sec, c1_min_ph, c1_max_ph, 
+                        id, project_id, name, measurement_interval_mins, c1_min_ph, c1_max_ph, 
                         c2_min_ph, c2_max_ph, c3_min_ph, c3_max_ph, max_pump_time_sec, 
                         mixing_cooldown_sec, manual_dose_steps, status
                     ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'active')
                 ''', (
-                    experiment_id, project_id, name, config.get('measurement_interval_sec', 1),
+                    experiment_id, project_id, name, config.get('measurement_interval_mins', 1),
                     config.get('c1_min_ph'), config.get('c1_max_ph'),
                     config.get('c2_min_ph'), config.get('c2_max_ph'),
                     config.get('c3_min_ph'), config.get('c3_max_ph'),

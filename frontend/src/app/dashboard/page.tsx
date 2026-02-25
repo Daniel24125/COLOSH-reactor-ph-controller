@@ -2,7 +2,7 @@
 
 import { useMqtt } from "@/hooks/useMqtt";
 import { useState, useEffect } from "react";
-import { Project, getProjects, stopExperiment, getTelemetry, Telemetry } from "@/actions/dbActions";
+import { Project, getProjects, stopExperiment, getTelemetry, Telemetry, getActiveExperiment } from "@/actions/dbActions";
 import { Droplet, Activity, Database, AlertCircle, PlayCircle, Square } from "lucide-react";
 import { CartesianGrid, Line, LineChart, XAxis, YAxis, Tooltip, ResponsiveContainer, Legend } from "recharts";
 import { toast } from "sonner";
@@ -11,7 +11,7 @@ import { EventLogWidget } from "@/components/EventLogWidget";
 import Link from "next/link";
 
 export default function Dashboard() {
-    const { isConnected, phData, status, eventLogs, dosePump, publishCommand } = useMqtt();
+    const { isConnected, phData, loggedTelemetry, status, setStatus, eventLogs, dosePump, publishCommand } = useMqtt();
     const [showSetup, setShowSetup] = useState(false);
     const [isSubmitting, setIsSubmitting] = useState(false);
 
@@ -23,6 +23,19 @@ export default function Dashboard() {
 
     // Telemetry Chart State
     const [chartData, setChartData] = useState<(Telemetry & { timeStr: string })[]>([]);
+
+    // Fetch initial status from DB so we don't wait for periodic MQTT ping
+    useEffect(() => {
+        getActiveExperiment().then(exp => {
+            if (exp) {
+                setStatus(prev => ({
+                    ...prev,
+                    active_experiment: exp.id,
+                    db_connected: true
+                }));
+            }
+        });
+    }, [setStatus]);
 
     // Fetch baseline telemetry when an active experiment is detected
     useEffect(() => {
@@ -40,18 +53,18 @@ export default function Dashboard() {
         }
     }, [status.active_experiment]);
 
-    // Append new live MQTT points to chart
+    // Append new live MQTT points to chart (uses loggedTelemetry to respect interval)
     useEffect(() => {
-        if (status.active_experiment && Object.keys(phData).length > 0) {
+        if (status.active_experiment && Object.keys(loggedTelemetry).length > 0) {
             const now = new Date();
             const newPoint = {
                 id: now.getTime().toString(),
                 experiment_id: status.active_experiment,
                 timestamp: now.toISOString(),
                 timeStr: now.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' }),
-                compartment_1_ph: phData[1] || 0,
-                compartment_2_ph: phData[2] || 0,
-                compartment_3_ph: phData[3] || 0,
+                compartment_1_ph: loggedTelemetry[1] || 0,
+                compartment_2_ph: loggedTelemetry[2] || 0,
+                compartment_3_ph: loggedTelemetry[3] || 0,
             };
 
             setChartData(prev => {
@@ -61,7 +74,7 @@ export default function Dashboard() {
                 return updated;
             });
         }
-    }, [phData, status.active_experiment]);
+    }, [loggedTelemetry, status.active_experiment]);
 
     // Fetch projects on mount for widget and modal
     const fetchProjectsList = () => {

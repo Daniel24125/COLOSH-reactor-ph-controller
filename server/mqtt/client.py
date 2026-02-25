@@ -68,11 +68,18 @@ class MQTTClient:
             )
 
     def publish_telemetry(self, ph_data: dict):
-        """Publish pH telemetry. ph_data: {1: 7.0, 2: 7.1, 3: 6.9}"""
+        """Publish real-time pH telemetry. ph_data: {1: 7.0, 2: 7.1, 3: 6.9}"""
         try:
             self.client.publish("reactor/telemetry/ph", json.dumps(ph_data))
         except Exception as e:
-            logger.error(f"Failed to publish telemetry: {e}")
+            logger.error(f"Failed to publish real-time telemetry: {e}")
+
+    def publish_logged_telemetry(self, ph_data: dict):
+        """Publish pH telemetry aligned with DB logging interval."""
+        try:
+            self.client.publish("reactor/telemetry/logged", json.dumps(ph_data))
+        except Exception as e:
+            logger.error(f"Failed to publish logged telemetry: {e}")
 
     def publish_status(self, status_data: dict):
         """Publish system status."""
