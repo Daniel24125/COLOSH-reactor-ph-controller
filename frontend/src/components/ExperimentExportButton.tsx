@@ -7,9 +7,10 @@ import { toast } from "sonner";
 interface ExperimentExportButtonProps {
     experimentId: string;
     experimentName: string;
+    iconOnly?: boolean;
 }
 
-export function ExperimentExportButton({ experimentId, experimentName }: ExperimentExportButtonProps) {
+export function ExperimentExportButton({ experimentId, experimentName, iconOnly = false }: ExperimentExportButtonProps) {
     const [isExporting, setIsExporting] = useState(false);
 
     const handleExport = async () => {
@@ -43,6 +44,21 @@ export function ExperimentExportButton({ experimentId, experimentName }: Experim
             setIsExporting(false);
         }
     };
+
+    if (iconOnly) {
+        return (
+            <button
+                onClick={handleExport}
+                disabled={isExporting}
+                className="p-1.5 rounded-md bg-neutral-900/80 hover:bg-emerald-500/20 text-neutral-400 hover:text-emerald-400 border border-neutral-700 hover:border-emerald-600/40 transition-colors disabled:opacity-50"
+                title={`Export "${experimentName}" to Excel`}
+            >
+                {isExporting
+                    ? <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                    : <FileSpreadsheet className="w-3.5 h-3.5" />}
+            </button>
+        );
+    }
 
     return (
         <button

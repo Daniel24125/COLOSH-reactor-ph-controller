@@ -5,6 +5,7 @@ import { Card, CardHeader, CardTitle, CardDescription, CardContent } from "@/com
 import { Badge } from "@/components/ui/badge";
 import { ArrowLeft, Beaker, Calendar, Target } from "lucide-react";
 import { DeleteExperimentButton } from "@/components/DeleteExperimentButton";
+import { ExperimentExportButton } from "@/components/ExperimentExportButton";
 
 export const dynamic = "force-dynamic";
 
@@ -42,7 +43,7 @@ export default async function ProjectDetail({ params }: { params: Promise<{ id: 
                             <Link href={`/experiments/${exp.id}`} className="block h-full">
                                 <Card className="bg-neutral-900 border-neutral-800 hover:border-indigo-500/50 transition-colors cursor-pointer group/card h-full">
                                     <CardHeader>
-                                        <div className="flex justify-between items-start pr-12">
+                                        <div className="flex justify-between items-start pr-20">
                                             <CardTitle className="text-neutral-200 group-hover/card:text-indigo-400 transition-colors">
                                                 {exp.name}
                                             </CardTitle>
@@ -75,7 +76,12 @@ export default async function ProjectDetail({ params }: { params: Promise<{ id: 
                                     </CardContent>
                                 </Card>
                             </Link>
-                            <div className="absolute top-4 right-4 z-10 opacity-0 group-hover:opacity-100 transition-opacity">
+                            <div className="absolute top-3 right-3 z-10 flex gap-1.5 opacity-0 group-hover:opacity-100 transition-opacity">
+                                <ExperimentExportButton
+                                    experimentId={exp.id}
+                                    experimentName={exp.name}
+                                    iconOnly
+                                />
                                 <DeleteExperimentButton id={exp.id} experimentName={exp.name} />
                             </div>
                         </div>
