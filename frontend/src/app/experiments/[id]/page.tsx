@@ -9,6 +9,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { Telemetry, getExperimentLogs, ExperimentLog, getExperimentById, Experiment } from "@/actions/dbActions";
 import { EventLogWidget } from "@/components/EventLogWidget";
 import { formatDuration } from "@/hooks/useElapsedTime";
+import { ExperimentExportButton } from "@/components/ExperimentExportButton";
 
 export default function ExperimentHistory() {
     const { id } = useParams();
@@ -79,9 +80,9 @@ export default function ExperimentHistory() {
                         </p>
                     </div>
 
-                    {/* Duration stat cards */}
+                    {/* Duration stat cards + Export button */}
                     {!loading && experiment && (
-                        <div className="flex gap-3 shrink-0">
+                        <div className="flex flex-wrap gap-3 shrink-0 items-center">
                             <div className="bg-neutral-900 border border-neutral-800 rounded-xl px-4 py-3 flex items-center gap-3">
                                 <Timer className="w-4 h-4 text-indigo-400" />
                                 <div>
@@ -98,6 +99,10 @@ export default function ExperimentHistory() {
                                     </p>
                                 </div>
                             </div>
+                            <ExperimentExportButton
+                                experimentId={experiment.id}
+                                experimentName={experiment.name}
+                            />
                         </div>
                     )}
                 </div>
