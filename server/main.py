@@ -1,182 +1,255 @@
 import asyncio
 import logging
 import time
-import json
 import os
 from dotenv import load_dotenv
 
 from hardware import get_hardware
 from database import SQLiteClient
 from mqtt import MQTTClient
+from ph_controller import PhController
 
-# Load the .env config overrides
-load_dotenv()
+logger = logging.getLogger(__name__)
 
-# Setup basic logging
-logging.basicConfig(
-    level=logging.INFO,
-    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
-)
-logger = logging.getLogger("MAIN")
 
 class ReactorController:
+    # ── Compartment IDs ────────────────────────────────────────────────────
+    COMPARTMENTS = [1, 2, 3]
+
+    # ── Timing constants ───────────────────────────────────────────────────
+    CYCLE_INTERVAL_SEC = 1       # Main control-loop period
+    RECOVERY_SLEEP_SEC = 5       # Sleep after an unhandled loop error
+
+    # ── Dosing defaults (used when experiment config is absent) ────────────
+    DEFAULT_DOSE_STEPS = 50
+    DEFAULT_MAX_PUMP_SEC = 30
+    DEFAULT_COOLDOWN_SEC = 10
+
     def __init__(self):
-        # 1. Initialize Hardware Abstraction Layer
+        # 1. Hardware Abstraction Layer
         self.hw = get_hardware()
-        
-        # 2. Initialize DBs
+
+        # 2. Database
         db_path = os.getenv("SQLITE_DB_PATH", "reactor.db")
         self.sqlite = SQLiteClient(db_path=db_path)
-        
-        # 3. Initialize MQTT
+
+        # 3. MQTT
         mqtt_url = os.getenv("MQTT_BROKER_URL", "localhost")
         mqtt_port = int(os.getenv("MQTT_PORT", "1883"))
         self.mqtt = MQTTClient(broker_url=mqtt_url, port=mqtt_port)
         self.mqtt.on_manual_control = self.handle_manual_control
         self.mqtt.on_auto_update = self.handle_auto_update
         self.mqtt.on_experiment_config = self.handle_experiment_config
+        self.mqtt.on_calibration_control = self.handle_calibration_control
 
-        # System state
+        # 4. System state
         self.running = False
         self.active_experiment = None
-        self.last_dose_time = {1: 0, 2: 0, 3: 0}
-        self.last_measurement_time = 0
+        self.ph_ctrl = PhController(self.sqlite.get_latest_calibrations())
+        self.calibration_mode_compartment = None
+        self.last_dose_time = {c: 0.0 for c in self.COMPARTMENTS}
+        self.last_measurement_time = 0.0
 
-    async def log_experiment_event(self, level: str, message: str, compartment: int = None):
-        """Log event to DB and broadcast via MQTT."""
+    # ── Event helpers ──────────────────────────────────────────────────────
+
+    async def _log_event(self, level: str, message: str, compartment: int = None):
+        """Broadcast an event via MQTT and persist it to the DB if an experiment is active."""
         self.mqtt.publish_event(level, message, compartment)
         if self.active_experiment:
-            await asyncio.to_thread(self.sqlite.log_event, self.active_experiment['id'], level, message, compartment)
+            await asyncio.to_thread(
+                self.sqlite.log_event,
+                self.active_experiment["id"], level, message, compartment
+            )
+
+    # ── MQTT command handlers ──────────────────────────────────────────────
+
+    async def handle_calibration_control(self, payload: dict):
+        """Handle calibration mode commands and post-save calibration reloads."""
+        action = payload.get("action")
+        command = payload.get("command")
+
+        if action == "reload_calibration":
+            logger.info("Reloading calibrations from DB...")
+            self.ph_ctrl.reload(self.sqlite.get_latest_calibrations())
+
+        if command == "start":
+            self.calibration_mode_compartment = payload.get("compartment")
+            logger.info(f"Entered calibration mode for compartment {self.calibration_mode_compartment}")
+        elif command == "stop":
+            self.calibration_mode_compartment = None
+            logger.info("Exited calibration mode")
 
     async def handle_experiment_config(self, payload: dict):
-        """Handle live configuration updates routed from MQTT."""
+        """Reload the active experiment when its config changes."""
         logger.info("Experiment config update received via MQTT. Applying dynamically.")
-        if not self.active_experiment or self.active_experiment['id'] == payload.get('experiment_id'):
+        # Only reload if the update targets the currently active experiment
+        if self.active_experiment and self.active_experiment["id"] == payload.get("experiment_id"):
             self.active_experiment = self.sqlite.get_active_experiment()
 
     async def handle_manual_control(self, payload: dict):
-        """Handle manual pump commands from MQTT."""
+        """Execute a manual pump dose requested from the frontend."""
         pump_id = payload.get("pump_id")
         direction = payload.get("direction", "forward")
-        steps = payload.get("steps", self.active_experiment.get("manual_dose_steps", 50) if self.active_experiment else 50)
-        
-        if pump_id in self.hw.pumps:
-            logger.info(f"Manual Override: Dosing pump {pump_id} {steps} steps {direction}")
-            await self.log_experiment_event("INFO", f"Manual Override: Pump {pump_id} activated for {steps} steps ({direction})", pump_id)
-            pump = self.hw.pumps[pump_id]
-            max_time = self.active_experiment.get("max_pump_time_sec", 30) if self.active_experiment else 30
-            # Offload blocking hardware call to thread
-            try:
-                await asyncio.to_thread(pump.dose, direction, steps, max_time)
-            except Exception as e:
-                logger.error(f"Manual dose failed: {e}")
-                await self.log_experiment_event("ERROR", f"Manual pump safety cutoff triggered: {e}", pump_id)
+        default_steps = (
+            self.active_experiment.get("manual_dose_steps", self.DEFAULT_DOSE_STEPS)
+            if self.active_experiment else self.DEFAULT_DOSE_STEPS
+        )
+        steps = payload.get("steps", default_steps)
+
+        if pump_id not in self.hw.pumps:
+            logger.warning(f"Manual control: pump_id {pump_id!r} not found in hardware — ignoring.")
+            return
+
+        pump = self.hw.pumps[pump_id]
+        max_time = (
+            self.active_experiment.get("max_pump_time_sec", self.DEFAULT_MAX_PUMP_SEC)
+            if self.active_experiment else self.DEFAULT_MAX_PUMP_SEC
+        )
+
+        logger.info(f"Manual override: dosing pump {pump_id} — {steps} steps {direction}")
+        await self._log_event("INFO", f"Manual override: pump {pump_id} activated for {steps} steps ({direction})", pump_id)
+        try:
+            await asyncio.to_thread(pump.dose, direction, steps, max_time)
+        except Exception as exc:
+            logger.error(f"Manual dose failed: {exc}")
+            await self._log_event("ERROR", f"Manual pump safety cutoff triggered: {exc}", pump_id)
 
     async def handle_auto_update(self, payload: dict):
-        """Update active experiment thresholds based on frontend config."""
-        # For simplicity, we just reload the active experiment from SQLite
-        logger.info("Auto Update triggered from MQTT. Reloading active experiment.")
+        """Reload the active experiment after an automated threshold update."""
+        logger.info("Auto update triggered from MQTT. Reloading active experiment.")
         self.active_experiment = self.sqlite.get_active_experiment()
 
-    async def dosing_logic(self, compartment_id: int, current_ph: float):
-        """Check pH and dose base if needed."""
+    # ── Dosing logic ───────────────────────────────────────────────────────
+
+    async def _dose_if_needed(self, compartment_id: int, current_ph: float):
+        """Dose base into a compartment if pH has dropped below the configured threshold."""
         if not self.active_experiment:
             return
 
-        target_min = self.active_experiment.get(f'c{compartment_id}_min_ph')
+        target_min = self.active_experiment.get(f"c{compartment_id}_min_ph")
         if target_min is None:
             return
 
-        cooldown = self.active_experiment.get('mixing_cooldown_sec', 10)
-        
-        # Check cooldown
+        cooldown = self.active_experiment.get("mixing_cooldown_sec", self.DEFAULT_COOLDOWN_SEC)
         if time.time() - self.last_dose_time[compartment_id] < cooldown:
+            return  # Still within cooldown window
+
+        if current_ph >= target_min:
+            return  # pH is within range — no dose required
+
+        pump_id = compartment_id  # 1:1 mapping: compartment ↔ pump
+        if pump_id not in self.hw.pumps:
+            logger.warning(f"Auto dosing: no pump found for compartment {compartment_id}")
             return
 
-        # Assuming pumps dispense BASE (which raises pH).
-        # If pH drops below minimum threshold -> add base.
-        if current_ph < target_min:
-            pump_id = compartment_id  # 1:1 mapping between compartment and pump
-            steps = 50  # We can standardise or calculate this. Using 50 for now.
-            direction = "forward"
-            
-            if pump_id in self.hw.pumps:
-                pump = self.hw.pumps[pump_id]
-                logger.info(f"Auto Dosing: Compartment {compartment_id} pH ({current_ph}) < {target_min}. Dosing {steps} steps.")
-                await self.log_experiment_event("INFO", f"Auto Dosing: pH {current_ph} < {target_min}. Pump activated.", compartment_id)
-                self.last_dose_time[compartment_id] = time.time()
-                max_time = self.active_experiment.get("max_pump_time_sec", 30)
-                try:
-                    await asyncio.to_thread(pump.dose, direction, steps, max_time)
-                except Exception as e:
-                    logger.error(f"Auto dose failed: {e}")
-                    await self.log_experiment_event("ERROR", f"Auto pump safety cutoff triggered: {e}", pump_id)
+        pump = self.hw.pumps[pump_id]
+        steps = self.DEFAULT_DOSE_STEPS
+        max_time = self.active_experiment.get("max_pump_time_sec", self.DEFAULT_MAX_PUMP_SEC)
+
+        logger.info(f"Auto dosing: compartment {compartment_id} pH ({current_ph}) < {target_min}. Dosing {steps} steps.")
+        await self._log_event("INFO", f"Auto dosing: pH {current_ph} < {target_min}. Pump activated.", compartment_id)
+        try:
+            await asyncio.to_thread(pump.dose, "forward", steps, max_time)
+            # Record dose time only after a confirmed successful dose
+            self.last_dose_time[compartment_id] = time.time()
+        except Exception as exc:
+            logger.error(f"Auto dose failed: {exc}")
+            await self._log_event("ERROR", f"Auto pump safety cutoff triggered: {exc}", pump_id)
+
+    # ── Run-loop helpers ───────────────────────────────────────────────────
+
+    async def _read_sensors(self) -> dict:
+        """Read voltage from all compartments, convert to pH, and stream calibration data."""
+        ph_data = {}
+        for compartment_id in self.COMPARTMENTS:
+            try:
+                voltage = await asyncio.to_thread(self.hw.adc.read_voltage, compartment_id)
+                ph_data[compartment_id] = self.ph_ctrl.voltage_to_ph(compartment_id, voltage)
+
+                if self.calibration_mode_compartment == compartment_id:
+                    self.mqtt.publish_raw_voltage({"raw_voltage": voltage})
+            except Exception as exc:
+                logger.error(f"Error reading sensor for compartment {compartment_id}: {exc}")
+                await self._log_event("ERROR", f"Failed to read sensor: {exc}", compartment_id)
+        return ph_data
+
+    async def _run_dosing(self, ph_data: dict):
+        """Run auto-dosing logic for every compartment based on the latest pH readings."""
+        for compartment_id, ph_val in ph_data.items():
+            await self._dose_if_needed(compartment_id, ph_val)
+
+    async def _log_telemetry(self, ph_data: dict):
+        """Persist a telemetry snapshot to SQLite when the logging interval has elapsed."""
+        if not self.active_experiment:
+            return
+        interval_mins = self.active_experiment.get("measurement_interval_mins", 1)
+        if time.time() - self.last_measurement_time >= interval_mins * 60:
+            await asyncio.to_thread(
+                self.sqlite.log_telemetry,
+                self.active_experiment["id"],
+                ph_data
+            )
+            self.mqtt.publish_logged_telemetry(ph_data)
+            self.last_measurement_time = time.time()
+
+    def _publish(self, ph_data: dict):
+        """Publish real-time telemetry and system status via MQTT."""
+        self.mqtt.publish_telemetry(ph_data)
+        self.mqtt.publish_status({
+            "health": "ok",
+            "active_experiment": self.active_experiment["id"] if self.active_experiment else None,
+            "db_connected": True,
+        })
+
+    # ── Main control loop ──────────────────────────────────────────────────
 
     async def run_loop(self):
         self.running = True
         self.mqtt.connect()
-        
-        logger.info("Starting Main Reactor Control Loop...")
-        
+        # Give the paho background thread time to complete the TCP handshake
+        # before publishing retained status, which requires a live connection.
+        await asyncio.sleep(1)
+        self.mqtt.publish_server_online()
+        logger.info("Starting main reactor control loop...")
+
         while self.running:
             try:
-                # 1. Update Active Experiment Ref
                 self.active_experiment = self.sqlite.get_active_experiment()
-                
-                # 2. Read Sensors
-                ph_data = {}
-                for i in [1, 2, 3]:
-                    try:
-                        ph_val = await asyncio.to_thread(self.hw.adc.read_ph, i)
-                        ph_data[i] = ph_val
-                        
-                        # 3. Check Auto Dosing
-                        await self.dosing_logic(i, ph_val)
-                    except Exception as e:
-                        logger.error(f"Error reading pH for compartment {i}: {e}")
-                        await self.log_experiment_event("ERROR", f"Failed to read pH sensor: {str(e)}", i)
-                
-                # Log telemetry to SQLite if experiment running and interval elapsed
-                if self.active_experiment:
-                    interval_mins = self.active_experiment.get('measurement_interval_mins', 1)
-                    if time.time() - self.last_measurement_time >= interval_mins * 60:
-                        await asyncio.to_thread(
-                            self.sqlite.log_telemetry, 
-                            self.active_experiment['id'], 
-                            ph_data
-                        )
-                        self.mqtt.publish_logged_telemetry(ph_data)
-                        self.last_measurement_time = time.time()
-                
-                # 4. Publish Telemetry
-                self.mqtt.publish_telemetry(ph_data)
-                
-                status_data = {
-                    "health": "ok",
-                    "active_experiment": self.active_experiment['id'] if self.active_experiment else None,
-                    "db_connected": True
-                }
-                self.mqtt.publish_status(status_data)
-                
-                # Run cycle at a fixed rate (e.g., 2.0s) for responsive dosing
-                sleep_duration = 1
-                await asyncio.sleep(sleep_duration)
-                
-            except Exception as e:
-                logger.error(f"Error in main loop: {e}")
-                await asyncio.sleep(5)
+
+                ph_data = await self._read_sensors()
+                await self._run_dosing(ph_data)
+                await self._log_telemetry(ph_data)
+                self._publish(ph_data)
+
+                await asyncio.sleep(self.CYCLE_INTERVAL_SEC)
+            except Exception as exc:
+                logger.error(f"Unhandled error in main loop: {exc}")
+                await asyncio.sleep(self.RECOVERY_SLEEP_SEC)
 
     def stop(self):
         self.running = False
+        self.mqtt.publish_server_offline()
         self.mqtt.disconnect()
-        logger.info("Reactor Controller Stopped.")
+        logger.info("Reactor controller stopped.")
+
+
+# ── Entry point ────────────────────────────────────────────────────────────
 
 async def main():
+    # Configure logging and environment only when run as the entry point
+    load_dotenv()
+    logging.basicConfig(
+        level=logging.INFO,
+        format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
+    )
+
     controller = ReactorController()
     try:
         await controller.run_loop()
-    except KeyboardInterrupt:
+    finally:
+        # Guaranteed cleanup on normal exit, KeyboardInterrupt, or any unhandled exception
         controller.stop()
+
 
 if __name__ == "__main__":
     asyncio.run(main())

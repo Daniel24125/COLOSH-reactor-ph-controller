@@ -3,6 +3,8 @@ import { Geist, Geist_Mono, Inter } from "next/font/google";
 import "./globals.css";
 import { Navigation } from "@/components/Navigation";
 import { Toaster } from "@/components/ui/sonner";
+import { UserProvider } from "@/context/UserContext";
+import { LocalSignInModal } from "@/components/LocalSignInModal";
 
 const inter = Inter({ subsets: ['latin'], variable: '--font-sans' });
 
@@ -31,9 +33,12 @@ export default function RootLayout({
       <body
         className={`${geistSans.variable} ${geistMono.variable} antialiased bg-neutral-950 text-neutral-100 min-h-screen`}
       >
-        <Navigation />
-        {children}
-        <Toaster />
+        <UserProvider>
+          <Navigation />
+          {children}
+          <Toaster />
+          <LocalSignInModal />
+        </UserProvider>
       </body>
     </html>
   );

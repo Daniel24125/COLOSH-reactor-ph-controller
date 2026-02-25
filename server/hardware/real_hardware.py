@@ -31,23 +31,15 @@ class RealADC:
         except Exception as e:
             logger.error(f"Failed to initialize RealADC: {e}")
 
-    def _voltage_to_ph(self, raw_voltage: float) -> float:
-        # Dummy calibration formula. In a real system, you'd have a 2-point or 3-point calibration.
-        # Let's assume neutral pH 7 is 1.5V, and the slope is -3.0 pH/V
-        # pH = 7.0 - (voltage - 1.5) * 3.0
-        return 7.0 - (raw_voltage - 1.5) * 3.0
-
-    def read_ph(self, compartment_id: int) -> float:
+    def read_voltage(self, compartment_id: int) -> float:
         try:
             chan = self.channels.get(compartment_id)
             if not chan:
                 raise ValueError(f"Invalid compartment ID: {compartment_id}")
-            # Get voltage
-            voltage = chan.voltage
-            ph = self._voltage_to_ph(voltage)
-            return round(ph, 2)
+            # Get raw voltage
+            return round(chan.voltage, 4)
         except Exception as e:
-            logger.error(f"Error reading pH for compartment {compartment_id}: {e}")
+            logger.error(f"Error reading voltage for compartment {compartment_id}: {e}")
             raise e
 
 

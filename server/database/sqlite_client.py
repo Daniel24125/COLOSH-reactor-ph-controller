@@ -66,11 +66,51 @@ class SQLiteClient:
                         FOREIGN KEY (experiment_id) REFERENCES experiments(id)
                     )
                 ''')
+                cursor.execute('''
+                    CREATE TABLE IF NOT EXISTS calibrations (
+                        id INTEGER PRIMARY KEY AUTOINCREMENT,
+                        compartment INTEGER,
+                        slope REAL,
+                        intercept REAL,
+                        researcher TEXT,
+                        calibrated_at DATETIME DEFAULT CURRENT_TIMESTAMP
+                    )
+                ''')
                 cursor.execute('CREATE INDEX IF NOT EXISTS idx_telemetry_experiment_time ON telemetry(experiment_id, timestamp);')
+                
+                # Migration for existing calibrations table
+                try:
+                    cursor.execute('ALTER TABLE calibrations ADD COLUMN researcher TEXT;')
+                except sqlite3.OperationalError:
+                    pass # Column already exists
+                    
                 conn.commit()
                 logger.info("SQLite Database initialized with WAL and telemetry tracking.")
         except Exception as e:
             logger.error(f"Error initializing SQLite DB: {e}")
+
+    def get_latest_calibrations(self):
+        try:
+            with sqlite3.connect(self.db_path) as conn:
+                conn.execute('PRAGMA journal_mode=WAL;')
+                conn.row_factory = sqlite3.Row
+                cursor = conn.cursor()
+                
+                calibrations = {}
+                for comp in [1, 2, 3]:
+                    cursor.execute('''
+                        SELECT slope, intercept FROM calibrations 
+                        WHERE compartment = ? 
+                        ORDER BY calibrated_at DESC 
+                        LIMIT 1
+                    ''', (comp,))
+                    row = cursor.fetchone()
+                    if row:
+                        calibrations[comp] = dict(row)
+                return calibrations
+        except Exception as e:
+            logger.error(f"Error getting latest calibrations: {e}")
+            return {}
 
     def get_active_experiment(self):
         try:

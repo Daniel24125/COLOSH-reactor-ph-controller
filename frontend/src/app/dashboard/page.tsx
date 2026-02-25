@@ -2,7 +2,9 @@
 
 import { useMqtt } from "@/hooks/useMqtt";
 import { useState, useEffect } from "react";
+import { useUser } from "@/context/UserContext";
 import { Project, getProjects, stopExperiment, getTelemetry, Telemetry, getActiveExperiment } from "@/actions/dbActions";
+import { getCalibrationStatus } from "@/actions/calibrationActions";
 import { Droplet, Activity, Database, AlertCircle, PlayCircle, Square } from "lucide-react";
 import { CartesianGrid, Line, LineChart, XAxis, YAxis, Tooltip, ResponsiveContainer, Legend } from "recharts";
 import { toast } from "sonner";
@@ -12,6 +14,7 @@ import Link from "next/link";
 
 export default function Dashboard() {
     const { isConnected, phData, loggedTelemetry, status, setStatus, eventLogs, dosePump, publishCommand } = useMqtt();
+    const { user } = useUser();
     const [showSetup, setShowSetup] = useState(false);
     const [isSubmitting, setIsSubmitting] = useState(false);
 
@@ -24,6 +27,10 @@ export default function Dashboard() {
     // Telemetry Chart State
     const [chartData, setChartData] = useState<(Telemetry & { timeStr: string })[]>([]);
 
+    // Calibration State
+    const [calibrationWarning, setCalibrationWarning] = useState<string | null>(null);
+    const [isCalibrationValid, setIsCalibrationValid] = useState(true);
+
     // Fetch initial status from DB so we don't wait for periodic MQTT ping
     useEffect(() => {
         getActiveExperiment().then(exp => {
@@ -33,6 +40,17 @@ export default function Dashboard() {
                     active_experiment: exp.id,
                     db_connected: true
                 }));
+            }
+        });
+
+        // Check calibration status on mount
+        getCalibrationStatus().then((res) => {
+            if (res.requiresCalibration) {
+                setCalibrationWarning(res.message);
+                setIsCalibrationValid(false);
+            } else {
+                setCalibrationWarning(null);
+                setIsCalibrationValid(true);
             }
         });
     }, [setStatus]);
@@ -184,6 +202,19 @@ export default function Dashboard() {
                     </div>
                 </div>
 
+                {/* Calibration Warning Banner */}
+                {calibrationWarning && (
+                    <div className="bg-yellow-500/10 border border-yellow-500/20 rounded-2xl p-4 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 text-yellow-500 shadow-lg shadow-yellow-900/5">
+                        <div className="flex items-center gap-3">
+                            <AlertCircle className="w-5 h-5 shrink-0" />
+                            <p className="font-medium text-sm">{calibrationWarning}</p>
+                        </div>
+                        <Link href="/calibration" className="shrink-0 px-4 py-2 text-sm bg-yellow-500/10 hover:bg-yellow-500/20 text-yellow-500 rounded-lg transition-colors border border-yellow-500/20 whitespace-nowrap font-medium">
+                            Recalibrate Sensors
+                        </Link>
+                    </div>
+                )}
+
                 {/* Active Experiment Banner */}
                 {status.active_experiment ? (
                     <div className="bg-indigo-950/30 border border-indigo-800/50 rounded-2xl p-4 flex flex-col md:flex-row md:items-center justify-between gap-4">
@@ -218,7 +249,9 @@ export default function Dashboard() {
                         </div>
                         <button
                             onClick={() => setShowSetup(true)}
-                            className="px-4 py-2 text-sm bg-indigo-600 hover:bg-indigo-500 text-white rounded-lg shadow-lg shadow-indigo-900/20 transition-all font-medium flex shrink-0 items-center justify-center"
+                            disabled={!isCalibrationValid}
+                            title={!isCalibrationValid ? "Probes must be calibrated before starting." : ""}
+                            className="px-4 py-2 text-sm bg-indigo-600 hover:bg-indigo-500 text-white rounded-lg shadow-lg shadow-indigo-900/20 transition-all font-medium flex shrink-0 items-center justify-center disabled:opacity-50 disabled:hover:bg-indigo-600"
                         >
                             Start Setup
                         </button>
@@ -263,7 +296,7 @@ export default function Dashboard() {
                                             </div>
                                             <div>
                                                 <label className="block text-xs font-medium text-neutral-500 mb-1">Researcher Name</label>
-                                                <input required={isCreatingProject} name="researcherName" type="text" className="w-full bg-neutral-950 border border-neutral-800 rounded-lg px-4 py-2 text-neutral-200 focus:outline-none focus:border-indigo-500 transition-colors" placeholder="e.g. Dr. Smith" />
+                                                <input required={isCreatingProject} name="researcherName" defaultValue={user?.name || ""} type="text" className="w-full bg-neutral-950 border border-neutral-800 rounded-lg px-4 py-2 text-neutral-200 focus:outline-none focus:border-indigo-500 transition-colors" placeholder="e.g. Dr. Smith" />
                                             </div>
                                         </div>
                                     )}

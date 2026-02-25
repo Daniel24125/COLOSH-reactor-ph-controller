@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { useRouter } from "next/navigation";
 import { createProject } from "@/actions/dbActions";
 import { toast } from "sonner";
@@ -18,6 +18,8 @@ import { Label } from "@/components/ui/label";
 import { Button } from "@/components/ui/button";
 import { Plus } from "lucide-react";
 
+import { useUser } from "@/context/UserContext";
+
 export function CreateProjectDialog({
     triggerButton,
     onSuccess
@@ -26,11 +28,19 @@ export function CreateProjectDialog({
     onSuccess?: () => void;
 }) {
     const router = useRouter();
+    const { user } = useUser();
     const [isOpen, setIsOpen] = useState(false);
     const [isSubmitting, setIsSubmitting] = useState(false);
 
     const [name, setName] = useState("");
     const [researcher, setResearcher] = useState("");
+
+    // Auto-fill researcher name when user context loads
+    useEffect(() => {
+        if (user?.name && !researcher) {
+            setResearcher(user.name);
+        }
+    }, [user]);
 
     const handleSubmit = async (e: React.FormEvent) => {
         e.preventDefault();

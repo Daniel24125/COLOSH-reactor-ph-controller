@@ -3,15 +3,16 @@
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useMqtt } from "@/hooks/useMqtt";
-import { Activity, Database, LayoutDashboard, FolderArchive } from "lucide-react";
+import { Activity, Cpu, LayoutDashboard, FolderArchive, SlidersHorizontal } from "lucide-react";
 import { cn } from "@/lib/utils";
 
 export function Navigation() {
     const pathname = usePathname();
-    const { isConnected, status } = useMqtt();
+    const { isConnected, isServerOnline } = useMqtt();
 
     const links = [
         { href: "/dashboard", label: "Live Reactor", icon: LayoutDashboard },
+        { href: "/calibration", label: "Calibration", icon: SlidersHorizontal },
         { href: "/projects", label: "Projects Archive", icon: FolderArchive },
     ];
 
@@ -47,9 +48,27 @@ export function Navigation() {
 
                 {/* Global Connection Status */}
                 <div className="flex items-center gap-4 text-sm">
-                    <div className="flex items-center gap-2" title="SQLite Database Status">
-                        <Database className={cn("w-4 h-4", status.db_connected ? "text-emerald-500" : "text-neutral-600")} />
-                        <span className="hidden sm:inline text-neutral-400">DB</span>
+                    <div
+                        className={cn(
+                            "flex items-center gap-2 px-3 py-1.5 rounded-full border transition-colors",
+                            isServerOnline === true
+                                ? "bg-emerald-500/10 border-emerald-500/20 text-emerald-400"
+                                : isServerOnline === false
+                                    ? "bg-red-500/10 border-red-500/20 text-red-400"
+                                    : "bg-neutral-800/60 border-neutral-700 text-neutral-500"
+                        )}
+                        title="Reactor Server (RPi) Status"
+                    >
+                        <Cpu className="w-4 h-4" />
+                        <div className={cn(
+                            "w-2 h-2 rounded-full",
+                            isServerOnline === true ? "bg-emerald-500 animate-pulse" :
+                                isServerOnline === false ? "bg-red-500" :
+                                    "bg-neutral-500 animate-pulse"
+                        )} />
+                        <span className="hidden sm:inline font-medium">
+                            {isServerOnline === true ? "Server Online" : isServerOnline === false ? "Server Offline" : "Server..."}
+                        </span>
                     </div>
                     <div
                         className={cn(

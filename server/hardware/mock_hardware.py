@@ -5,20 +5,37 @@ import logging
 logger = logging.getLogger(__name__)
 
 class MockADC:
+    # Default Nernst calibration constants — must match defaults used in main.py
+    _DEFAULT_SLOPE = -0.05916       # V/pH at 25°C (ideal Nernstian)
+    _DEFAULT_INTERCEPT = 0.0        # V at pH 7 (no offset)
+
     def __init__(self):
         self._start_time = time.time()
+        # Configurable target pH per compartment (used to back-calculate a realistic voltage)
+        self._target_ph = {1: 7.0, 2: 7.0, 3: 7.0}
         logger.debug("Initialized MockADC")
 
-    def read_ph(self, compartment_id: int) -> float:
+    def set_target_ph(self, compartment_id: int, ph: float):
+        """Set the simulated target pH for a compartment."""
+        self._target_ph[compartment_id] = ph
+        logger.debug(f"MockADC: Compartment {compartment_id} target pH set to {ph}")
+
+    def read_voltage(self, compartment_id: int) -> float:
         """
-        Returns a fluctuating dummy pH value.
-        Using a sine wave to simulate fluctuation between ~6.0 and ~8.0.
-        Offset by compartment_id so they don't all show the exact same value.
+        Returns a simulated voltage using the inverse Nernst equation at 37°C.
+        This mirrors how main.py converts voltage → pH, but in reverse:
+            voltage = intercept - live_slope * (target_ph - 7.0)
+        A small sine-wave noise (±0.003V) is added to simulate real electrode drift.
         """
+        target_ph = self._target_ph.get(compartment_id, 7.0)
+        # Temperature-compensated slope (37°C = 310.15 K, ref 25°C = 298.15 K)
+        live_slope = self._DEFAULT_SLOPE * (310.15 / 298.15)
+        # Inverse Nernst: voltage that a real electrode would output at target_ph
+        base_voltage = self._DEFAULT_INTERCEPT - live_slope * (target_ph - 7.0)
+        # Small drift noise (±0.003 V) to simulate electrode stabilisation
         elapsed = time.time() - self._start_time
-        # base 7.0, amplitude 1.0, varying over 60 seconds
-        val = 7.0 + math.sin(elapsed / 10.0 + compartment_id)
-        return round(val, 2)
+        noise = math.sin(elapsed / 10.0 + compartment_id) * 0.003
+        return round(base_voltage + noise, 4)
 
 
 class MockStepper:

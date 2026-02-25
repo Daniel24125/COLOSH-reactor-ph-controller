@@ -2,6 +2,7 @@
 
 import { useState, useEffect } from "react";
 import mqtt from "mqtt";
+import { toast } from "sonner";
 
 // Ensure this runs only on the client side
 const BROKER_URL = process.env.NEXT_PUBLIC_MQTT_URL || "ws://localhost:9001"; // Fallback to Mosquitto over WebSockets
@@ -13,6 +14,7 @@ export function useMqtt() {
     const [status, setStatus] = useState<{ health?: string; active_experiment?: string | null; db_connected?: boolean }>({});
     const [eventLogs, setEventLogs] = useState<{ id: string; level: string; message: string; timestamp: string; compartment: number | null }[]>([]);
     const [isConnected, setIsConnected] = useState(false);
+    const [isServerOnline, setIsServerOnline] = useState<boolean | null>(null);
 
     useEffect(() => {
         console.log("Connecting to MQTT broker at", BROKER_URL);
@@ -25,6 +27,7 @@ export function useMqtt() {
             mqttClient.subscribe("reactor/telemetry/logged");
             mqttClient.subscribe("reactor/status");
             mqttClient.subscribe("reactor/events");
+            mqttClient.subscribe("reactor/server/status");
         });
 
         mqttClient.on("message", (topic, message) => {
@@ -38,6 +41,19 @@ export function useMqtt() {
                     setStatus(payload);
                 } else if (topic === "reactor/events") {
                     setEventLogs((prev) => [...prev, { id: Math.random().toString(36).substring(7), ...payload }].slice(-100));
+                } else if (topic === "reactor/server/status") {
+                    const online = payload.status === "online";
+                    setIsServerOnline((prev) => {
+                        if (prev !== online) {
+                            // Only toast when the state actually changes
+                            if (online) {
+                                toast.success("Reactor server is online.");
+                            } else {
+                                toast.error("Reactor server went offline.");
+                            }
+                        }
+                        return online;
+                    });
                 }
             } catch (err) {
                 console.error("Error parsing MQTT message", err);
@@ -97,5 +113,5 @@ export function useMqtt() {
         }
     };
 
-    return { isConnected, phData, loggedTelemetry, status, setStatus, eventLogs, dosePump, updateAutoThresholds, publishCommand };
+    return { isConnected, isServerOnline, phData, loggedTelemetry, status, setStatus, eventLogs, dosePump, updateAutoThresholds, publishCommand };
 }
