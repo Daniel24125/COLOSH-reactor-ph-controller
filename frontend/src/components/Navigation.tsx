@@ -3,12 +3,14 @@
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useMqtt } from "@/hooks/useMqtt";
-import { Activity, Cpu, LayoutDashboard, FolderArchive, SlidersHorizontal } from "lucide-react";
+import { useUser } from "@/context/UserContext";
+import { Activity, Cpu, LayoutDashboard, FolderArchive, SlidersHorizontal, LogOut } from "lucide-react";
 import { cn } from "@/lib/utils";
 
 export function Navigation() {
     const pathname = usePathname();
     const { isConnected, isServerOnline } = useMqtt();
+    const { user, clearUser } = useUser();
 
     const links = [
         { href: "/dashboard", label: "Live Reactor", icon: LayoutDashboard },
@@ -46,8 +48,8 @@ export function Navigation() {
                     </nav>
                 </div>
 
-                {/* Global Connection Status */}
-                <div className="flex items-center gap-4 text-sm">
+                {/* Global Connection Status + User */}
+                <div className="flex items-center gap-3 text-sm">
                     <div
                         className={cn(
                             "flex items-center gap-2 px-3 py-1.5 rounded-full border transition-colors",
@@ -82,6 +84,22 @@ export function Navigation() {
                         <div className={cn("w-2 h-2 rounded-full", isConnected ? "bg-emerald-500 animate-pulse" : "bg-red-500")} />
                         <span className="hidden sm:inline font-medium">{isConnected ? "Broker Connected" : "Broker Offline"}</span>
                     </div>
+
+                    {/* User avatar + logout */}
+                    {user && (
+                        <div className="flex items-center gap-2 pl-1 border-l border-neutral-800">
+                            <div className="w-7 h-7 rounded-full bg-indigo-500/20 border border-indigo-500/30 flex items-center justify-center text-xs font-bold text-indigo-400 select-none" title={`${user.name} — ${user.email}`}>
+                                {user.name.charAt(0).toUpperCase()}
+                            </div>
+                            <button
+                                onClick={clearUser}
+                                title="Log out"
+                                className="p-1.5 rounded-md text-neutral-500 hover:text-red-400 hover:bg-red-500/10 transition-colors"
+                            >
+                                <LogOut className="w-3.5 h-3.5" />
+                            </button>
+                        </div>
+                    )}
                 </div>
 
             </div>

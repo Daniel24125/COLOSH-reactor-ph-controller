@@ -10,6 +10,7 @@ export type User = {
 type UserContextType = {
     user: User | null;
     setUser: (user: User) => void;
+    clearUser: () => void;
     isLoading: boolean;
 };
 
@@ -36,8 +37,13 @@ export function UserProvider({ children }: { children: React.ReactNode }) {
         localStorage.setItem("colosh_user", JSON.stringify(newUser));
     };
 
+    const clearUser = () => {
+        setUserState(null);
+        localStorage.removeItem("colosh_user");
+    };
+
     return (
-        <UserContext.Provider value={{ user, setUser, isLoading }}>
+        <UserContext.Provider value={{ user, setUser, clearUser, isLoading }}>
             {children}
         </UserContext.Provider>
     );
