@@ -18,6 +18,7 @@ except ImportError as e:
 
 class RealADC:
     def __init__(self):
+        self.channels = {}
         try:
             self.i2c = busio.I2C(board.SCL, board.SDA)
             self.ads = ADS.ADS1115(self.i2c)
@@ -32,15 +33,14 @@ class RealADC:
             logger.error(f"Failed to initialize RealADC: {e}")
 
     def read_voltage(self, compartment_id: int) -> float:
+        chan = self.channels.get(compartment_id)
+        if not chan:
+            raise RuntimeError(f"ADC not initialized or invalid compartment ID: {compartment_id}")
         try:
-            chan = self.channels.get(compartment_id)
-            if not chan:
-                raise ValueError(f"Invalid compartment ID: {compartment_id}")
             # Get raw voltage
             return round(chan.voltage, 4)
         except Exception as e:
-            logger.error(f"Error reading voltage for compartment {compartment_id}: {e}")
-            raise e
+            raise RuntimeError(f"Hardware error reading voltage: {e}")
 
 
 class RealStepper:

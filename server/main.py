@@ -49,6 +49,7 @@ class ReactorController:
         self.calibration_mode_compartment = None
         self.last_dose_time = {c: 0.0 for c in self.COMPARTMENTS}
         self.last_measurement_time = 0.0
+        self.sensor_error_logged = {c: False for c in self.COMPARTMENTS}
 
     # ── Event helpers ──────────────────────────────────────────────────────
 
@@ -183,9 +184,16 @@ class ReactorController:
 
                 if self.calibration_mode_compartment == compartment_id:
                     self.mqtt.publish_raw_voltage({"raw_voltage": voltage})
+                    
+                if self.sensor_error_logged[compartment_id]:
+                    logger.info(f"Sensor for compartment {compartment_id} recovered.")
+                    await self._log_event("INFO", f"Sensor recovered.", compartment_id)
+                    self.sensor_error_logged[compartment_id] = False
             except Exception as exc:
-                logger.error(f"Error reading sensor for compartment {compartment_id}: {exc}")
-                await self._log_event("ERROR", f"Failed to read sensor: {exc}", compartment_id)
+                if not self.sensor_error_logged[compartment_id]:
+                    logger.error(f"Error reading sensor for compartment {compartment_id}: {exc}")
+                    await self._log_event("ERROR", f"Failed to read sensor: {exc}", compartment_id)
+                    self.sensor_error_logged[compartment_id] = True
         return ph_data
 
     async def _run_dosing(self, ph_data: dict):
