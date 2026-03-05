@@ -19,6 +19,9 @@ class MQTTClient:
         self.on_auto_update = None
         self.on_experiment_config = None
         self.on_calibration_control = None
+        self.on_pump_prime = None
+        self.on_pump_calibrate_run = None
+        self.on_pump_save_calibration = None
 
         self.client = mqtt.Client(mqtt.CallbackAPIVersion.VERSION2, client_id=self.client_id)
         self.client.on_connect = self._on_connect
@@ -49,6 +52,9 @@ class MQTTClient:
             client.subscribe("reactor/control/pump/auto")
             client.subscribe("reactor/control/experiment")
             client.subscribe("reactor/control/calibration")
+            client.subscribe("pump/control/prime")
+            client.subscribe("pump/control/calibrate_run")
+            client.subscribe("pump/config/save_calibration")
         else:
             logger.error(f"Failed to connect, return code {reason_code}")
 
@@ -83,6 +89,31 @@ class MQTTClient:
                 self.on_calibration_control(data),
                 self._loop
             )
+        elif topic == "pump/control/prime" and self.on_pump_prime:
+            asyncio.run_coroutine_threadsafe(
+                self.on_pump_prime(data),
+                self._loop
+            )
+        elif topic == "pump/control/calibrate_run" and self.on_pump_calibrate_run:
+            asyncio.run_coroutine_threadsafe(
+                self.on_pump_calibrate_run(data),
+                self._loop
+            )
+        elif topic == "pump/config/save_calibration" and self.on_pump_save_calibration:
+            asyncio.run_coroutine_threadsafe(
+                self.on_pump_save_calibration(data),
+                self._loop
+            )
+
+    def publish_pump_active_status(self, location: str, is_running: bool):
+        """Publish pump running status for the frontend."""
+        try:
+            self.client.publish("pump/status/active", json.dumps({
+                "location": location,
+                "is_running": is_running
+            }))
+        except Exception as e:
+            logger.error(f"Failed to publish pump active status: {e}")
 
     def publish_telemetry(self, ph_data: dict):
         """Publish real-time pH telemetry. ph_data: {1: 7.0, 2: 7.1, 3: 6.9}"""

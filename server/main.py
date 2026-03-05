@@ -8,6 +8,8 @@ from hardware import get_hardware
 from database import SQLiteClient
 from mqtt import MQTTClient
 from ph_controller import PhController
+from config.pump_helpers import PumpConfigManager
+from hardware.mock_hardware import PeristalticPump # We can also move this into hal.py if required, but directly importing here for now.
 
 logger = logging.getLogger(__name__)
 
@@ -40,11 +42,14 @@ class ReactorController:
         self.mqtt.on_manual_control = self.handle_manual_control
         self.mqtt.on_auto_update = self.handle_auto_update
         self.mqtt.on_experiment_config = self.handle_experiment_config
-        self.mqtt.on_calibration_control = self.handle_calibration_control
+        self.mqtt.on_pump_prime = self.handle_pump_prime
+        self.mqtt.on_pump_calibrate_run = self.handle_pump_calibrate_run
+        self.mqtt.on_pump_save_calibration = self.handle_pump_save_calibration
 
         # 4. System state
         self.running = False
         self.active_experiment = None
+        self.pump_config_manager = PumpConfigManager()
         self.ph_ctrl = PhController(self.sqlite.get_latest_calibrations())
         self.calibration_mode_compartment = None
         self.last_dose_time = {c: 0.0 for c in self.COMPARTMENTS}
@@ -119,6 +124,96 @@ class ReactorController:
         """Reload the active experiment after an automated threshold update."""
         logger.info("Auto update triggered from MQTT. Reloading active experiment.")
         self.active_experiment = self.sqlite.get_active_experiment()
+
+    # ── Peristaltic Pump Calibration Handlers ──────────────────────────────
+
+    def _get_hw_pump(self, location: str):
+        """Helper to fetch or instantiate a pump directly from config metadata."""
+        try:
+            config = self.pump_config_manager.get_pump_config(location)
+            # Find an existing matching mock hardware pump if it exists (for compatibility)
+            # But the requirement asks for full PeristalticPump UI backend integration.
+            return PeristalticPump(
+                dir_pin=config["dir_pin"],
+                step_pin=config["step_pin"],
+                en_pin=config["en_pin"],
+                steps_per_ml=config.get("steps_per_ml", 1000.0)
+            )
+        except Exception as e:
+            logger.error(f"Failed to load pump for location {location}: {e}")
+            return None
+
+    async def handle_pump_prime(self, payload: dict):
+        location = payload.get("location")
+        state = payload.get("state")  # "ON" or "OFF"
+        
+        logger.info(f"Pump Prime {state}: {location}")
+        pump = self._get_hw_pump(location)
+        if not pump: return
+        
+        if state == "ON":
+            import RPi.GPIO as GPIO
+            GPIO.output(pump.en_pin, GPIO.LOW)
+            self.mqtt.publish_pump_active_status(location, True)
+            
+            # Simple async prime loop until told to stop (for safety, this could be bounded)
+            # In a real hardware system, to prevent blocking the async loop forever we start a task
+            if not hasattr(self, "_prime_tasks"): self._prime_tasks = {}
+            if location in self._prime_tasks: return # Already priming
+            
+            async def _prime_loop():
+                try:
+                    while True:
+                        GPIO.output(pump.step_pin, GPIO.HIGH)
+                        await asyncio.sleep(0.002)
+                        GPIO.output(pump.step_pin, GPIO.LOW)
+                        await asyncio.sleep(0.002)
+                except asyncio.CancelledError:
+                    GPIO.output(pump.en_pin, GPIO.HIGH)
+            
+            self._prime_tasks[location] = asyncio.create_task(_prime_loop())
+
+        elif state == "OFF":
+            if hasattr(self, "_prime_tasks") and location in self._prime_tasks:
+                self._prime_tasks[location].cancel()
+                del self._prime_tasks[location]
+            
+            import RPi.GPIO as GPIO
+            GPIO.output(pump.en_pin, GPIO.HIGH)
+            self.mqtt.publish_pump_active_status(location, False)
+
+    async def handle_pump_calibrate_run(self, payload: dict):
+        location = payload.get("location")
+        steps = payload.get("steps", 10000)
+        
+        logger.info(f"Pump Calibrate Run: {location} for {steps} steps")
+        pump = self._get_hw_pump(location)
+        if not pump: return
+
+        self.mqtt.publish_pump_active_status(location, True)
+        try:
+            await asyncio.to_thread(pump.run_calibration, int(steps))
+        except Exception as e:
+            logger.error(f"Pump Calibrate Run Failed: {e}")
+        finally:
+            self.mqtt.publish_pump_active_status(location, False)
+
+    async def handle_pump_save_calibration(self, payload: dict):
+        location = payload.get("location")
+        measured_ml = payload.get("measured_ml")
+        test_steps = payload.get("test_steps", 10000)
+        
+        if not measured_ml or measured_ml <= 0:
+            logger.error("Invalid measured_ml received for calibration.")
+            return
+
+        steps_per_ml = float(test_steps) / float(measured_ml)
+        logger.info(f"Saving Calibration for {location}: {steps_per_ml:.2f} steps/mL")
+        
+        try:
+            self.pump_config_manager.save_calibration(location, steps_per_ml)
+        except Exception as e:
+            logger.error(f"Failed to save calibration: {e}")
 
     # ── Dosing logic ───────────────────────────────────────────────────────
 
