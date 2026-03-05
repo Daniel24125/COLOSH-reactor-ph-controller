@@ -2,12 +2,13 @@
 
 import React, { useState, useEffect } from "react";
 import { useMqtt } from "@/hooks/useMqtt";
+import { CheckCircle2, RotateCcw } from "lucide-react";
 
 interface PumpCalibrationWizardProps {
-    location: string; // e.g., "location_1"
+    location?: string; // e.g., "location_1"
 }
 
-export function PumpCalibrationWizard({ location }: PumpCalibrationWizardProps) {
+export function PumpCalibrationWizard({ location = "location_1" }: PumpCalibrationWizardProps) {
     const [step, setStep] = useState<1 | 2 | 3>(1);
     const [isRunning, setIsRunning] = useState<boolean>(false);
     const [measuredMl, setMeasuredMl] = useState<string>("");
@@ -16,14 +17,11 @@ export function PumpCalibrationWizard({ location }: PumpCalibrationWizardProps) 
 
     const testSteps = 10000;
 
-    // Hook into the central MQTT context
     const { client, publishCommand } = useMqtt();
 
-    // Listen to the backend status topic to know when the hardware is running
     useEffect(() => {
         if (!client) return;
 
-        // Need to explicitly subscribe to this topic since the global MqttContext might not subscribe to it by default
         client.subscribe("pump/status/active");
 
         const handleStatusMessage = (topic: string, message: Buffer) => {
@@ -32,7 +30,6 @@ export function PumpCalibrationWizard({ location }: PumpCalibrationWizardProps) 
                     const data = JSON.parse(message.toString());
                     if (data.location === location) {
                         setIsRunning(data.is_running);
-                        // If the pump finishes running the test, advance to input step automatically
                         if (step === 2 && !data.is_running) {
                             setStep(3);
                         }
@@ -51,158 +48,210 @@ export function PumpCalibrationWizard({ location }: PumpCalibrationWizardProps) 
         };
     }, [client, location, step]);
 
-    // Phase 1: Priming
-    const handlePrimeDown = () => {
-        publishCommand("pump/control/prime", { location, state: "ON" });
-    };
-    const handlePrimeUp = () => {
-        publishCommand("pump/control/prime", { location, state: "OFF" });
-    };
+    const handlePrimeDown = () => publishCommand("pump/control/prime", { location, state: "ON" });
+    const handlePrimeUp = () => publishCommand("pump/control/prime", { location, state: "OFF" });
+    const handleRunCalibration = () => publishCommand("pump/control/calibrate_run", { location, steps: testSteps });
 
-    // Phase 2: Running Calibration
-    const handleRunCalibration = () => {
-        publishCommand("pump/control/calibrate_run", { location, steps: testSteps });
-    };
-
-    // Phase 3: Saving Calibration
     const handleSaveCalibration = () => {
         const ml = parseFloat(measuredMl);
         if (!isNaN(ml) && ml > 0) {
             const stepsPerMl = testSteps / ml;
             setCalculatedStepsPerMl(stepsPerMl);
-
             publishCommand("pump/config/save_calibration", {
                 location,
                 measured_ml: ml,
-                test_steps: testSteps
+                test_steps: testSteps,
             });
             setIsSuccess(true);
         }
     };
 
-    // Helper renderer
+    const steps = [
+        { label: "Prime", num: 1 },
+        { label: "Run", num: 2 },
+        { label: "Measure", num: 3 },
+    ];
+
     const renderStepContent = () => {
         switch (step) {
             case 1:
                 return (
-                    <div className="flex flex-col items-center gap-4">
-                        <p className="text-center text-sm text-gray-600">
-                            Hold the button below to turn on the pump and fill the tube with fluid up to the nozzle.
-                        </p>
-                        <button
-                            onMouseDown={handlePrimeDown}
-                            onMouseUp={handlePrimeUp}
-                            onMouseLeave={handlePrimeUp}
-                            onTouchStart={handlePrimeDown}
-                            onTouchEnd={handlePrimeUp}
-                            className="px-6 py-4 bg-blue-600 text-white rounded shadow-lg active:bg-blue-800 transition-colors w-full font-semibold"
-                        >
-                            Prime Tube (Hold)
-                        </button>
+                    <div className="space-y-4">
+                        <div className="bg-neutral-900 border border-neutral-800 rounded-2xl p-6">
+                            <h3 className="text-neutral-200 font-medium mb-2">Prime the Tube</h3>
+                            <p className="text-sm text-neutral-500 mb-6">
+                                Hold the button to run the pump continuously. Fill the silicone tube with
+                                fluid until it reaches the nozzle tip with no air gaps.
+                            </p>
+                            <button
+                                onMouseDown={handlePrimeDown}
+                                onMouseUp={handlePrimeUp}
+                                onMouseLeave={handlePrimeUp}
+                                onTouchStart={handlePrimeDown}
+                                onTouchEnd={handlePrimeUp}
+                                className="w-full py-4 bg-indigo-600 hover:bg-indigo-500 active:bg-indigo-700 text-white rounded-xl transition-colors font-medium text-sm select-none"
+                            >
+                                Hold to Prime
+                            </button>
+                        </div>
                         <button
                             onClick={() => setStep(2)}
-                            className="text-blue-500 hover:underline mt-4 text-sm"
+                            className="w-full py-3 bg-neutral-900 hover:bg-neutral-800 text-neutral-400 hover:text-indigo-400 rounded-xl transition-colors border border-neutral-800 text-sm font-medium"
                         >
-                            Tube is primed. Next Step ➔
+                            Tube is primed — Next Step →
                         </button>
                     </div>
                 );
 
             case 2:
                 return (
-                    <div className="flex flex-col items-center gap-4">
-                        <p className="text-center text-sm text-gray-600">
-                            Place a scale or graduated cylinder under the nozzle. Press the button to execute a controlled run of {testSteps.toLocaleString()} steps.
-                        </p>
-                        <button
-                            onClick={handleRunCalibration}
-                            disabled={isRunning}
-                            className={`px-6 py-4 rounded shadow-lg transition-colors w-full font-semibold ${isRunning ? "bg-gray-400 text-gray-200 cursor-not-allowed" : "bg-green-600 text-white hover:bg-green-700"
-                                }`}
-                        >
-                            {isRunning ? "Running..." : `Run ${testSteps.toLocaleString()} Steps`}
-                        </button>
+                    <div className="space-y-4">
+                        <div className="bg-neutral-900 border border-neutral-800 rounded-2xl p-6">
+                            <h3 className="text-neutral-200 font-medium mb-2">Controlled Run</h3>
+                            <p className="text-sm text-neutral-500 mb-6">
+                                Place a graduated cylinder or scale under the nozzle. Press the button to
+                                dispense exactly{" "}
+                                <span className="font-mono text-indigo-400">{testSteps.toLocaleString()}</span>{" "}
+                                steps. The pump stops automatically.
+                            </p>
+                            <button
+                                onClick={handleRunCalibration}
+                                disabled={isRunning}
+                                className={`w-full py-4 rounded-xl transition-colors font-medium text-sm ${isRunning
+                                        ? "bg-neutral-800 text-neutral-500 cursor-not-allowed border border-neutral-700"
+                                        : "bg-indigo-600 hover:bg-indigo-500 text-white"
+                                    }`}
+                            >
+                                {isRunning ? (
+                                    <span className="flex items-center justify-center gap-2">
+                                        <span className="w-2 h-2 bg-indigo-400 rounded-full animate-pulse inline-block" />
+                                        Running {testSteps.toLocaleString()} steps…
+                                    </span>
+                                ) : (
+                                    `Run ${testSteps.toLocaleString()} Steps`
+                                )}
+                            </button>
+                        </div>
+                        {!isRunning && (
+                            <button
+                                onClick={() => setStep(3)}
+                                className="w-full py-3 bg-neutral-900 hover:bg-neutral-800 text-neutral-400 hover:text-indigo-400 rounded-xl transition-colors border border-neutral-800 text-sm"
+                            >
+                                Run complete — Skip to Measure →
+                            </button>
+                        )}
                     </div>
                 );
 
             case 3:
                 if (isSuccess) {
                     return (
-                        <div className="flex flex-col items-center gap-4 text-green-700 text-center p-4 bg-green-50 rounded-lg border border-green-200">
-                            <svg xmlns="http://www.w3.org/2000/svg" className="h-12 w-12" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
-                            </svg>
+                        <div className="bg-indigo-950/30 border border-indigo-500/30 rounded-2xl p-10 flex flex-col items-center text-center gap-4">
+                            <CheckCircle2 className="w-12 h-12 text-indigo-400" />
                             <div>
-                                <h3 className="font-bold text-lg mb-1">Hardware Calibrated!</h3>
-                                <p className="text-sm">Value saved: {calculatedStepsPerMl?.toFixed(2)} steps/mL</p>
+                                <h3 className="text-indigo-300 font-medium text-lg mb-1">
+                                    Pump Calibrated Successfully
+                                </h3>
+                                <p className="text-neutral-400 text-sm">
+                                    Saved{" "}
+                                    <span className="font-mono text-neutral-200">
+                                        {calculatedStepsPerMl?.toFixed(2)}
+                                    </span>{" "}
+                                    steps / mL for{" "}
+                                    <span className="font-mono text-neutral-300">{location}</span>
+                                </p>
                             </div>
                             <button
-                                onClick={() => { setStep(1); setIsSuccess(false); setMeasuredMl(""); }}
-                                className="mt-4 px-4 py-2 border rounded border-green-700 hover:bg-green-100 transition-colors"
+                                onClick={() => {
+                                    setStep(1);
+                                    setIsSuccess(false);
+                                    setMeasuredMl("");
+                                    setCalculatedStepsPerMl(null);
+                                }}
+                                className="flex items-center gap-2 px-5 py-2.5 bg-neutral-900 hover:bg-neutral-800 text-neutral-300 rounded-xl border border-neutral-800 transition-colors text-sm font-medium"
                             >
-                                Recalibrate
+                                <RotateCcw className="w-4 h-4" /> Recalibrate
                             </button>
                         </div>
                     );
                 }
 
                 return (
-                    <div className="flex flex-col items-center gap-4">
-                        <p className="text-center text-sm text-gray-600">
-                            Measure the fluid that was just dispensed and enter the amount in milliliters (mL).
-                        </p>
-                        <div className="flex gap-2 w-full">
-                            <input
-                                type="number"
-                                value={measuredMl}
-                                onChange={(e) => setMeasuredMl(e.target.value)}
-                                placeholder="Volume in mL (e.g., 8.5)"
-                                className="flex-1 p-3 border rounded-lg active:border-blue-500 font-mono text-lg"
-                                step="0.01"
-                            />
+                    <div className="space-y-4">
+                        <div className="bg-neutral-900 border border-neutral-800 rounded-2xl p-6">
+                            <h3 className="text-neutral-200 font-medium mb-2">Enter Measured Volume</h3>
+                            <p className="text-sm text-neutral-500 mb-6">
+                                Measure the fluid dispensed into the cylinder and enter the volume below.
+                            </p>
+                            <div className="relative">
+                                <input
+                                    type="number"
+                                    value={measuredMl}
+                                    onChange={(e) => setMeasuredMl(e.target.value)}
+                                    placeholder="e.g. 8.5"
+                                    step="0.01"
+                                    className="w-full bg-neutral-950 border border-neutral-800 rounded-xl px-4 py-3 text-neutral-200 text-lg font-mono focus:outline-none focus:border-indigo-500 transition-colors pr-14"
+                                />
+                                <span className="absolute right-4 top-1/2 -translate-y-1/2 text-neutral-500 text-sm font-medium pointer-events-none">
+                                    mL
+                                </span>
+                            </div>
                         </div>
                         <button
                             onClick={handleSaveCalibration}
                             disabled={!measuredMl || parseFloat(measuredMl) <= 0}
-                            className="px-6 py-4 bg-purple-600 text-white rounded shadow-lg hover:bg-purple-700 disabled:bg-gray-400 w-full font-semibold"
+                            className="w-full py-4 bg-indigo-600 hover:bg-indigo-500 disabled:opacity-50 disabled:cursor-not-allowed text-white rounded-xl transition-colors font-medium text-sm"
                         >
                             Save Calibration
                         </button>
                     </div>
                 );
+
             default:
                 return null;
         }
     };
 
     return (
-        <div className="max-w-md w-full mx-auto bg-white rounded-xl shadow-md border p-6">
-            <h2 className="text-xl font-bold mb-6 text-gray-800 border-b pb-2 tracking-tight">
-                Peristaltic Pump Calibration
-            </h2>
-
-            {/* Stepper indicators */}
-            <div className="flex justify-between items-center mb-8 px-4">
-                {[1, 2, 3].map((s) => (
-                    <div key={s} className="flex flex-col items-center flex-1">
-                        <div
-                            className={`w-8 h-8 rounded-full flex items-center justify-center font-bold text-sm mb-1 ${step === s ? "bg-blue-600 text-white shadow-md shadow-blue-200"
-                                : step > s ? "bg-green-500 text-white"
-                                    : "bg-gray-200 text-gray-500"
-                                }`}
-                        >
-                            {step > s ? "✓" : s}
+        <div className="space-y-8">
+            {/* Stepper */}
+            <div className="flex items-center">
+                {steps.map((s, i) => (
+                    <React.Fragment key={s.num}>
+                        <div className="flex flex-col items-center gap-1.5">
+                            <div
+                                className={`w-9 h-9 rounded-full flex items-center justify-center font-bold text-sm transition-all ${step === s.num
+                                        ? "bg-indigo-600 text-white shadow-lg shadow-indigo-900/30"
+                                        : step > s.num
+                                            ? "bg-indigo-900/50 text-indigo-400 border border-indigo-700/50"
+                                            : "bg-neutral-800 text-neutral-500 border border-neutral-700"
+                                    }`}
+                            >
+                                {step > s.num ? "✓" : s.num}
+                            </div>
+                            <span
+                                className={`text-xs font-medium transition-colors ${step === s.num
+                                        ? "text-indigo-400"
+                                        : step > s.num
+                                            ? "text-neutral-500"
+                                            : "text-neutral-600"
+                                    }`}
+                            >
+                                {s.label}
+                            </span>
                         </div>
-                        <span className={`text-xs text-center ${step === s ? "font-semibold text-blue-800" : "text-gray-400"}`}>
-                            {s === 1 ? "Prime" : s === 2 ? "Run" : "Input"}
-                        </span>
-                    </div>
+                        {i < steps.length - 1 && (
+                            <div
+                                className={`flex-1 h-px mx-3 mb-4 transition-colors ${step > s.num ? "bg-indigo-700/50" : "bg-neutral-800"
+                                    }`}
+                            />
+                        )}
+                    </React.Fragment>
                 ))}
             </div>
 
-            <div className="min-h-[220px]">
-                {renderStepContent()}
-            </div>
+            {/* Active Step Content */}
+            {renderStepContent()}
         </div>
     );
 }

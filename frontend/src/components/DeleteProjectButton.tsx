@@ -17,7 +17,7 @@ import {
 } from "@/components/ui/alert-dialog";
 import { toast } from "sonner";
 
-export function DeleteProjectButton({ id, projectName }: { id: number, projectName: string }) {
+export function DeleteProjectButton({ id, projectName }: { id: string, projectName: string }) {
     const router = useRouter();
     const [isDeleting, setIsDeleting] = useState(false);
 
