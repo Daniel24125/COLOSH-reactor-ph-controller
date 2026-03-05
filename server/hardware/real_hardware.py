@@ -1,5 +1,6 @@
 import logging
 import time
+import threading
 
 logger = logging.getLogger(__name__)
 
@@ -14,6 +15,21 @@ try:
     from adafruit_ads1x15.analog_in import AnalogIn
 except ImportError as e:
     logger.warning(f"Could not import hardware libraries: {e}. If on Windows, this is expected.")
+
+
+# Shared GPIO chip handle to avoid "GPIO busy" errors
+_CHIP_HANDLE = None
+
+def get_gpio_chip():
+    global _CHIP_HANDLE
+    if _CHIP_HANDLE is None:
+        try:
+            # lgpio.gpiochip_open(0) might vary depending on RPi model/kernel
+            _CHIP_HANDLE = lgpio.gpiochip_open(0)
+        except Exception as e:
+            logger.error(f"Fatal: Failed to open gpiochip 0: {e}")
+            raise e
+    return _CHIP_HANDLE
 
 
 class RealADC:
@@ -43,58 +59,101 @@ class RealADC:
             raise RuntimeError(f"Hardware error reading voltage: {e}")
 
 
-class RealStepper:
-    def __init__(self, pump_id: int, step_pin: int, dir_pin: int):
-        self.pump_id = pump_id
-        self.step_pin = step_pin
+class RealPeristalticPump:
+    """High-level pump controller for calibration and precise dosing using lgpio."""
+    def __init__(self, dir_pin: int, step_pin: int, en_pin: int, steps_per_ml: float = 1000.0):
         self.dir_pin = dir_pin
-        self.delay = 0.001  # Delay between step pulses (1ms)
+        self.step_pin = step_pin
+        self.en_pin = en_pin
+        self.steps_per_ml = steps_per_ml
         self.h_gpio = None
+        
+        # Threading support for continuous priming
+        self._prime_thread = None
+        self._stop_prime_event = threading.Event()
+        
         try:
-            # lgpio.gpiochip_open(0) might vary depending on RPi model/kernel
-            self.h_gpio = lgpio.gpiochip_open(0)
-            lgpio.gpio_claim_output(self.h_gpio, self.step_pin)
+            self.h_gpio = get_gpio_chip()
             lgpio.gpio_claim_output(self.h_gpio, self.dir_pin)
-            logger.info(f"RealStepper initialized for pump {pump_id} (Step: {step_pin}, Dir: {dir_pin}).")
+            lgpio.gpio_claim_output(self.h_gpio, self.step_pin)
+            lgpio.gpio_claim_output(self.h_gpio, self.en_pin)
+            # Disable motor by default (EN = HIGH for TMC2209)
+            lgpio.gpio_write(self.h_gpio, self.en_pin, 1)
+            logger.info(f"RealPeristalticPump initialized (DIR:{dir_pin}, STEP:{step_pin}, EN:{en_pin}).")
         except Exception as e:
-            logger.error(f"Failed to initialize GPIO for RealStepper {pump_id}: {e}")
+            logger.error(f"Failed to initialize RealPeristalticPump pins: {e}")
+
+    def set_enable(self, state: bool):
+        if self.h_gpio is None: return
+        val = 0 if state else 1 # Low = Enabled
+        lgpio.gpio_write(self.h_gpio, self.en_pin, val)
+
+    def run_calibration(self, total_steps: int = 10000, safe_delay: float = 0.002):
+        logger.info(f"Running real calibration for {total_steps} steps...")
+        if self.h_gpio is None: return
+        try:
+            lgpio.gpio_write(self.h_gpio, self.en_pin, 0) # Enable
+            time.sleep(0.1)
+            for _ in range(total_steps):
+                lgpio.gpio_write(self.h_gpio, self.step_pin, 1)
+                time.sleep(safe_delay)
+                lgpio.gpio_write(self.h_gpio, self.step_pin, 0)
+                time.sleep(safe_delay)
+        finally:
+            lgpio.gpio_write(self.h_gpio, self.en_pin, 1) # Disable
 
     def dose(self, direction: str, steps: int, max_time_sec: int = 30):
-        """
-        Dose by sending pulses to the Step pin and setting the Dir pin.
-        direction: "forward" or "reverse"
-        """
-        if self.h_gpio is None:
-            logger.error(f"Cannot dose pump {self.pump_id}: GPIO not initialized.")
-            return
-
-        expected_time = steps * (self.delay * 2)
-        if expected_time > max_time_sec:
-            raise TimeoutError(f"Pump {self.pump_id} cutoff: Requested dose ({expected_time:.2f}s) exceeds maximum allowed time ({max_time_sec}s).")
-
+        if self.h_gpio is None: return
+        # Simple dose implementation for high-level handlers
         try:
             dir_val = 1 if direction in (1, "forward") else 0
             lgpio.gpio_write(self.h_gpio, self.dir_pin, dir_val)
+            lgpio.gpio_write(self.h_gpio, self.en_pin, 0)
+            time.sleep(0.05)
             
-            logger.info(f"[REAL PUMP {self.pump_id}] Dosing {steps} steps in direction: {direction}")
-            start_time = time.time()
-            for i in range(steps):
-                if time.time() - start_time > max_time_sec:
-                     raise TimeoutError(f"Pump {self.pump_id} forcibly stopped. Exceeded max run time of {max_time_sec}s at step {i}/{steps}")
-                
+            delay = 0.001
+            for _ in range(steps):
                 lgpio.gpio_write(self.h_gpio, self.step_pin, 1)
-                time.sleep(self.delay)
+                time.sleep(delay)
                 lgpio.gpio_write(self.h_gpio, self.step_pin, 0)
-                time.sleep(self.delay)
-        except Exception as e:
-            logger.error(f"Hardware error during dozing pump {self.pump_id}: {e}")
-            raise e
+                time.sleep(delay)
+        finally:
+            lgpio.gpio_write(self.h_gpio, self.en_pin, 1)
 
-    def __del__(self):
+    def start_prime(self, direction: str = "forward"):
+        """Starts a continuous background loop of step pulses."""
+        if self._prime_thread and self._prime_thread.is_alive():
+            return # Already running
+
+        self._stop_prime_event.clear()
+        # Daemon thread ensures it dies if the main program crashes
+        self._prime_thread = threading.Thread(target=self._prime_loop, args=(direction,), daemon=True)
+        self._prime_thread.start()
+
+    def stop_prime(self):
+        """Signals the background loop to stop and disable the motor."""
+        self._stop_prime_event.set()
+        if self._prime_thread:
+            self._prime_thread.join(timeout=1.0)
+
+    def _prime_loop(self, direction: str):
+        """The actual continuous pulsing logic (runs in the background)."""
+        if self.h_gpio is None: return
+        
+        dir_val = 1 if direction in (1, "forward") else 0
+        lgpio.gpio_write(self.h_gpio, self.dir_pin, dir_val)
+        lgpio.gpio_write(self.h_gpio, self.en_pin, 0) # Enable driver (Active LOW)
+        
+        delay = 0.001 # 1ms delay for safe speed
         try:
-            if self.h_gpio is not None:
-                lgpio.gpio_free(self.h_gpio, self.step_pin)
-                lgpio.gpio_free(self.h_gpio, self.dir_pin)
-                lgpio.gpiochip_close(self.h_gpio)
-        except Exception:
-            pass
+            while not self._stop_prime_event.is_set():
+                lgpio.gpio_write(self.h_gpio, self.step_pin, 1)
+                time.sleep(delay)
+                lgpio.gpio_write(self.h_gpio, self.step_pin, 0)
+                time.sleep(delay)
+        finally:
+            # Guarantee the motor goes back to sleep when stopped
+            try:
+                lgpio.gpio_write(self.h_gpio, self.en_pin, 1)
+            except: pass
+

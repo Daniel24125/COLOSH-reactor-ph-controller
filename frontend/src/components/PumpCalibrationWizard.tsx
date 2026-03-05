@@ -218,10 +218,16 @@ export function PumpCalibrationWizard() {
                                 with no air gaps.
                             </p>
 
-                            {/* Pointer events ensure pump stops if cursor slips outside the button */}
+                            {/* Pointer events with capture ensure pump stops even if cursor slips outside the button */}
                             <button
-                                onPointerDown={startPrime}
-                                onPointerUp={stopPrime}
+                                onPointerDown={(e) => {
+                                    e.currentTarget.setPointerCapture(e.pointerId);
+                                    startPrime();
+                                }}
+                                onPointerUp={(e) => {
+                                    e.currentTarget.releasePointerCapture(e.pointerId);
+                                    stopPrime();
+                                }}
                                 onPointerLeave={stopPrime}
                                 onPointerCancel={stopPrime}
                                 className="w-full py-5 bg-indigo-600 hover:bg-indigo-500 active:bg-indigo-700 text-white rounded-xl transition-colors font-medium text-sm select-none touch-none cursor-pointer"

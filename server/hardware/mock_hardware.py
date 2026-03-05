@@ -38,21 +38,54 @@ class MockADC:
         return round(base_voltage + noise, 4)
 
 
-class MockStepper:
-    def __init__(self, pump_id: int):
-        self.pump_id = pump_id
-        logger.debug(f"Initialized MockStepper for pump {pump_id}")
+class PeristalticPump:
+    """Mock implementation of the high-level PeristalticPump class for non-Pi systems."""
+    def __init__(self, dir_pin: int, step_pin: int, en_pin: int, steps_per_ml: float = 1000.0):
+        self.dir_pin = dir_pin
+        self.step_pin = step_pin
+        self.en_pin = en_pin
+        self.steps_per_ml = steps_per_ml
+        logger.info(f"[MOCK PUMP] Initialized with pins DIR:{dir_pin}, STEP:{step_pin}, EN:{en_pin}")
+        
+        self._prime_thread = None
+        self._stop_prime_event = threading.Event()
+
+    def set_enable(self, state: bool):
+        logger.info(f"[MOCK PUMP] enable set to {state}")
+
+    def run_calibration(self, total_steps: int = 10000, safe_delay: float = 0.002):
+        logger.info(f"[MOCK PUMP] Running calibration for {total_steps} steps...")
+        time.sleep(total_steps * safe_delay * 0.1) # Accelerated sleep for mock
+        logger.info("[MOCK PUMP] Calibration run complete.")
 
     def dose(self, direction: str, steps: int, max_time_sec: int = 30):
-        """
-        Mock doser prints to terminal instead of triggering GPIO.
-        """
-        # Assume 1ms delay per step (2 delays per cycle)
         expected_time = steps * 0.002
         if expected_time > max_time_sec:
-            raise TimeoutError(f"Pump {self.pump_id} cutoff: Requested dose ({expected_time:.2f}s) exceeds maximum allowed time ({max_time_sec}s).")
-            
-        direction_str = "forward" if direction in (1, "forward") else "reverse"
-        logger.info(f"[MOCK PUMP {self.pump_id}] Dosing {steps} steps in direction: {direction_str} (Estimated {expected_time:.2f}s)")
-        # Simulate time taken
-        time.sleep(expected_time)
+            raise TimeoutError(f"Mock Pump cutoff: dose ({expected_time:.2f}s) > max ({max_time_sec}s).")
+        
+        logger.info(f"[MOCK PUMP] Dosing {steps} steps {direction}")
+        time.sleep(min(expected_time, 0.5)) # Cap sleep for UX in mock
+
+    def start_prime(self, direction: str = "forward"):
+        """Starts a continuous background loop of step pulses."""
+        if self._prime_thread and self._prime_thread.is_alive():
+            return # Already running
+
+        self._stop_prime_event.clear()
+        self._prime_thread = threading.Thread(target=self._prime_loop, args=(direction,), daemon=True)
+        self._prime_thread.start()
+
+    def stop_prime(self):
+        """Signals the background loop to stop and disable the motor."""
+        self._stop_prime_event.set()
+        if self._prime_thread:
+            self._prime_thread.join(timeout=1.0)
+
+    def _prime_loop(self, direction: str):
+        """Mock background loop logic."""
+        logger.info(f"[MOCK PUMP] Starting continuous prime: {direction}")
+        try:
+            while not self._stop_prime_event.is_set():
+                time.sleep(0.1) # Prevent CPU pegging
+        finally:
+            logger.info(f"[MOCK PUMP] Stopped continuous prime.")

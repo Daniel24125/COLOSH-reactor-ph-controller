@@ -9,7 +9,6 @@ from database import SQLiteClient
 from mqtt import MQTTClient
 from ph_controller import PhController
 from config.pump_helpers import PumpConfigManager
-from hardware.mock_hardware import PeristalticPump # We can also move this into hal.py if required, but directly importing here for now.
 
 logger = logging.getLogger(__name__)
 
@@ -127,20 +126,13 @@ class ReactorController:
 
     # ── Peristaltic Pump Calibration Handlers ──────────────────────────────
 
-    def _get_hw_pump(self, location: str):
-        """Helper to fetch or instantiate a pump directly from config metadata."""
+    def _get_calibration_pump(self, location: str):
+        """Map location_X to a persistent PeristalticPump instance from the hardware layer."""
         try:
-            config = self.pump_config_manager.get_pump_config(location)
-            # Find an existing matching mock hardware pump if it exists (for compatibility)
-            # But the requirement asks for full PeristalticPump UI backend integration.
-            return PeristalticPump(
-                dir_pin=config["dir_pin"],
-                step_pin=config["step_pin"],
-                en_pin=config["en_pin"],
-                steps_per_ml=config.get("steps_per_ml", 1000.0)
-            )
-        except Exception as e:
-            logger.error(f"Failed to load pump for location {location}: {e}")
+            pump_id = int(location.split("_")[-1])
+            return self.hw.pumps.get(pump_id)
+        except (ValueError, IndexError):
+            logger.error(f"Invalid pump location format: {location}")
             return None
 
     async def handle_pump_prime(self, payload: dict):
@@ -148,39 +140,21 @@ class ReactorController:
         state = payload.get("state")  # "ON" or "OFF"
         
         logger.info(f"Pump Prime {state}: {location}")
-        pump = self._get_hw_pump(location)
+        pump = self._get_calibration_pump(location)
         if not pump: return
         
         if state == "ON":
-            import RPi.GPIO as GPIO
-            GPIO.output(pump.en_pin, GPIO.LOW)
-            self.mqtt.publish_pump_active_status(location, True)
-            
-            # Simple async prime loop until told to stop (for safety, this could be bounded)
-            # In a real hardware system, to prevent blocking the async loop forever we start a task
-            if not hasattr(self, "_prime_tasks"): self._prime_tasks = {}
-            if location in self._prime_tasks: return # Already priming
-            
-            async def _prime_loop():
-                try:
-                    while True:
-                        GPIO.output(pump.step_pin, GPIO.HIGH)
-                        await asyncio.sleep(0.002)
-                        GPIO.output(pump.step_pin, GPIO.LOW)
-                        await asyncio.sleep(0.002)
-                except asyncio.CancelledError:
-                    GPIO.output(pump.en_pin, GPIO.HIGH)
-            
-            self._prime_tasks[location] = asyncio.create_task(_prime_loop())
-
+            try:
+                pump.start_prime()
+                self.mqtt.publish_pump_active_status(location, True)
+            except Exception as e:
+                logger.error(f"Prime ON failed: {e}")
         elif state == "OFF":
-            if hasattr(self, "_prime_tasks") and location in self._prime_tasks:
-                self._prime_tasks[location].cancel()
-                del self._prime_tasks[location]
-            
-            import RPi.GPIO as GPIO
-            GPIO.output(pump.en_pin, GPIO.HIGH)
-            self.mqtt.publish_pump_active_status(location, False)
+            try:
+                pump.stop_prime()
+                self.mqtt.publish_pump_active_status(location, False)
+            except Exception as e:
+                logger.error(f"Prime OFF failed: {e}")
 
     async def handle_pump_calibrate_run(self, payload: dict):
         location = payload.get("location")
@@ -200,7 +174,7 @@ class ReactorController:
             steps = int(payload.get("steps", 10000))
         
         logger.info(f"Pump Calibrate Run: {location} for {steps} steps")
-        pump = self._get_hw_pump(location)
+        pump = self._get_calibration_pump(location)
         if not pump: return
 
         self.mqtt.publish_pump_active_status(location, True)
