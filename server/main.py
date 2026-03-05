@@ -184,7 +184,20 @@ class ReactorController:
 
     async def handle_pump_calibrate_run(self, payload: dict):
         location = payload.get("location")
-        steps = payload.get("steps", 10000)
+        
+        # Accept either explicit steps (legacy) or target_volume which we convert
+        # to steps using the current calibration so the dispense is volumetrically consistent.
+        if "target_volume" in payload:
+            try:
+                config = self.pump_config_manager.get_pump_config(location)
+                current_spm = float(config.get("steps_per_ml", 1000.0))
+                target_vol = float(payload["target_volume"])
+                steps = int(round(current_spm * target_vol))
+            except Exception as e:
+                logger.error(f"Failed to compute steps from target_volume: {e}")
+                return
+        else:
+            steps = int(payload.get("steps", 10000))
         
         logger.info(f"Pump Calibrate Run: {location} for {steps} steps")
         pump = self._get_hw_pump(location)
@@ -192,7 +205,7 @@ class ReactorController:
 
         self.mqtt.publish_pump_active_status(location, True)
         try:
-            await asyncio.to_thread(pump.run_calibration, int(steps))
+            await asyncio.to_thread(pump.run_calibration, steps)
         except Exception as e:
             logger.error(f"Pump Calibrate Run Failed: {e}")
         finally:
@@ -200,18 +213,32 @@ class ReactorController:
 
     async def handle_pump_save_calibration(self, payload: dict):
         location = payload.get("location")
-        measured_ml = payload.get("measured_ml")
-        test_steps = payload.get("test_steps", 10000)
+        target_ml = payload.get("target_ml")
+        actual_ml = payload.get("actual_ml")
         
-        if not measured_ml or measured_ml <= 0:
-            logger.error("Invalid measured_ml received for calibration.")
+        if not actual_ml or float(actual_ml) <= 0:
+            logger.error("Invalid actual_ml received for calibration save.")
+            return
+        if not target_ml or float(target_ml) <= 0:
+            logger.error("Invalid target_ml received for calibration save.")
             return
 
-        steps_per_ml = float(test_steps) / float(measured_ml)
-        logger.info(f"Saving Calibration for {location}: {steps_per_ml:.2f} steps/mL")
-        
         try:
-            self.pump_config_manager.save_calibration(location, steps_per_ml)
+            config = self.pump_config_manager.get_pump_config(location)
+            current_spm = float(config.get("steps_per_ml", 1000.0))
+        except Exception as e:
+            logger.error(f"Failed to read current calibration for {location}: {e}")
+            return
+
+        # New steps/mL = (current steps/mL × target_ml) / actual_ml
+        new_spm = (current_spm * float(target_ml)) / float(actual_ml)
+        logger.info(
+            f"Saving calibration for {location}: {current_spm:.2f} → {new_spm:.2f} steps/mL "
+            f"(target={target_ml} mL, actual={actual_ml} mL)"
+        )
+
+        try:
+            self.pump_config_manager.save_calibration(location, new_spm)
         except Exception as e:
             logger.error(f"Failed to save calibration: {e}")
 
