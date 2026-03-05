@@ -1,10 +1,7 @@
 "use client";
 
 import React, { useState, useEffect } from "react";
-// Assumes standard MQTT publish and subscribe hooks exist in the project.
-// Replace these with actual project imports as needed.
-import { publishToTopic } from "@/lib/mqtt";
-import { useMqttSubscription } from "@/hooks/useMqtt";
+import { useMqtt } from "@/hooks/useMqtt";
 
 interface PumpCalibrationWizardProps {
     location: string; // e.g., "location_1"
@@ -19,37 +16,52 @@ export function PumpCalibrationWizard({ location }: PumpCalibrationWizardProps) 
 
     const testSteps = 10000;
 
-    // Listen to the backend status topic to know when the hardware is running
-    const statusPayload = useMqttSubscription("pump/status/active");
+    // Hook into the central MQTT context
+    const { client, publishCommand } = useMqtt();
 
+    // Listen to the backend status topic to know when the hardware is running
     useEffect(() => {
-        if (statusPayload) {
-            try {
-                const data = JSON.parse(statusPayload);
-                if (data.location === location) {
-                    setIsRunning(data.is_running);
-                    // If the pump finishes running the test, advance to input step automatically
-                    if (step === 2 && !data.is_running) {
-                        setStep(3);
+        if (!client) return;
+
+        // Need to explicitly subscribe to this topic since the global MqttContext might not subscribe to it by default
+        client.subscribe("pump/status/active");
+
+        const handleStatusMessage = (topic: string, message: Buffer) => {
+            if (topic === "pump/status/active") {
+                try {
+                    const data = JSON.parse(message.toString());
+                    if (data.location === location) {
+                        setIsRunning(data.is_running);
+                        // If the pump finishes running the test, advance to input step automatically
+                        if (step === 2 && !data.is_running) {
+                            setStep(3);
+                        }
                     }
+                } catch (e) {
+                    console.error("Failed to parse pump status payload", e);
                 }
-            } catch (e) {
-                console.error("Failed to parse pump status payload", e);
             }
-        }
-    }, [statusPayload, location, step]);
+        };
+
+        client.on("message", handleStatusMessage);
+
+        return () => {
+            client.unsubscribe("pump/status/active");
+            client.off("message", handleStatusMessage);
+        };
+    }, [client, location, step]);
 
     // Phase 1: Priming
     const handlePrimeDown = () => {
-        publishToTopic("pump/control/prime", JSON.stringify({ location, state: "ON" }));
+        publishCommand("pump/control/prime", { location, state: "ON" });
     };
     const handlePrimeUp = () => {
-        publishToTopic("pump/control/prime", JSON.stringify({ location, state: "OFF" }));
+        publishCommand("pump/control/prime", { location, state: "OFF" });
     };
 
     // Phase 2: Running Calibration
     const handleRunCalibration = () => {
-        publishToTopic("pump/control/calibrate_run", JSON.stringify({ location, steps: testSteps }));
+        publishCommand("pump/control/calibrate_run", { location, steps: testSteps });
     };
 
     // Phase 3: Saving Calibration
@@ -59,11 +71,11 @@ export function PumpCalibrationWizard({ location }: PumpCalibrationWizardProps) 
             const stepsPerMl = testSteps / ml;
             setCalculatedStepsPerMl(stepsPerMl);
 
-            publishToTopic("pump/config/save_calibration", JSON.stringify({
+            publishCommand("pump/config/save_calibration", {
                 location,
                 measured_ml: ml,
                 test_steps: testSteps
-            }));
+            });
             setIsSuccess(true);
         }
     };
@@ -175,8 +187,8 @@ export function PumpCalibrationWizard({ location }: PumpCalibrationWizardProps) 
                     <div key={s} className="flex flex-col items-center flex-1">
                         <div
                             className={`w-8 h-8 rounded-full flex items-center justify-center font-bold text-sm mb-1 ${step === s ? "bg-blue-600 text-white shadow-md shadow-blue-200"
-                                    : step > s ? "bg-green-500 text-white"
-                                        : "bg-gray-200 text-gray-500"
+                                : step > s ? "bg-green-500 text-white"
+                                    : "bg-gray-200 text-gray-500"
                                 }`}
                         >
                             {step > s ? "✓" : s}
