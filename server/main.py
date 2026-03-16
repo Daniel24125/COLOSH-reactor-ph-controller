@@ -41,6 +41,7 @@ class ReactorController:
         self.mqtt.on_manual_control = self.handle_manual_control
         self.mqtt.on_auto_update = self.handle_auto_update
         self.mqtt.on_experiment_config = self.handle_experiment_config
+        self.mqtt.on_calibration_control = self.handle_calibration_control
         self.mqtt.on_pump_prime = self.handle_pump_prime
         self.mqtt.on_pump_calibrate_run = self.handle_pump_calibrate_run
         self.mqtt.on_pump_save_calibration = self.handle_pump_save_calibration
