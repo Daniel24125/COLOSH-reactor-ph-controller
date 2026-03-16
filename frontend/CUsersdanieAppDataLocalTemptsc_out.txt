@@ -1,1 +1,0 @@
-src/components/component-example.tsx(8,8): error TS2307: Cannot find module '@/components/example' or its corresponding type declarations.
