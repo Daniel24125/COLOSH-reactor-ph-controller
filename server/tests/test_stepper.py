@@ -2,10 +2,9 @@ import RPi.GPIO as GPIO
 import time
 
 # Pin Configuration (BCM numbering)
-EN_PIN = 22
-STEP_PIN = 27
-DIR_PIN = 17
-
+DIR_PIN = 21
+STEP_PIN = 20
+EN_PIN = 16
 # Constants
 STEPS_PER_REV = 20000
 # Adjust this delay to change the motor speed (smaller = faster, larger = slower)
