@@ -1,7 +1,7 @@
 import time
 import math
 import logging
-
+import threading
 logger = logging.getLogger(__name__)
 
 class MockADC:
