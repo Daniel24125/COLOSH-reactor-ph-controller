@@ -2,6 +2,7 @@
 
 import { useUser } from "@/context/UserContext";
 import { Project } from "@/types";
+import { AlertCircle } from "lucide-react";
 
 interface SetupExperimentModalProps {
     projects: Project[];
@@ -30,6 +31,12 @@ export function SetupExperimentModal({
         <div className="fixed inset-0 bg-neutral-950/80 backdrop-blur-sm z-50 flex items-center justify-center p-4">
             <div className="bg-neutral-900 border border-neutral-800 rounded-2xl p-6 w-full max-w-md shadow-2xl">
                 <h2 className="text-xl font-medium text-neutral-200 mb-4">New Experiment Validation</h2>
+                
+                <div className="bg-blue-500/10 border border-blue-500/20 text-blue-400 p-3 rounded-lg flex items-start gap-3 mb-6 text-sm">
+                    <AlertCircle className="w-5 h-5 shrink-0 mt-0.5" />
+                    <p>Reminder: Ensure your pH sensors and pumps are calibrated before starting an experiment to guarantee accurate results.</p>
+                </div>
+
                 <form onSubmit={onSubmit} className="space-y-4">
                     <div className="space-y-4">
                         <div className="flex items-center justify-between">

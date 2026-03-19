@@ -2,7 +2,7 @@
 
 import { useMqtt } from "@/hooks/useMqtt";
 import { useUser } from "@/context/UserContext";
-import { useState, useEffect, useRef } from "react";
+import { useState, useEffect, useRef, Suspense } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { saveCalibration, getCalibrationHistory, CalibrationRecord } from "@/actions/calibrationActions";
 import { getActiveExperiment } from "@/actions/dbActions";
@@ -28,7 +28,7 @@ const PumpCalibrationWizard = dynamic(
 
 type CalibrationTab = "ph" | "pump";
 
-export default function CalibrationWizard() {
+function CalibrationWizardContent() {
     const router = useRouter();
     const searchParams = useSearchParams();
     const { publishCommand } = useMqtt();
@@ -265,5 +265,13 @@ export default function CalibrationWizard() {
                 <PumpCalibrationWizard />
             )}
         </div>
+    );
+}
+
+export default function CalibrationWizard() {
+    return (
+        <Suspense fallback={<div className="p-8 text-neutral-400">Loading calibration...</div>}>
+            <CalibrationWizardContent />
+        </Suspense>
     );
 }

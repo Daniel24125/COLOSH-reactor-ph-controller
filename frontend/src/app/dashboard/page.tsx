@@ -37,6 +37,7 @@ export default function Dashboard() {
     // Calibration State
     const [calibrationWarning, setCalibrationWarning] = useState<string | null>(null);
     const [isCalibrationValid, setIsCalibrationValid] = useState(true);
+    const [isCalibrationWarningDismissed, setIsCalibrationWarningDismissed] = useState(false);
 
     // Active experiment state - sourced from DB on mount for instant render
     const [activeExperiment, setActiveExperiment] = useState<Experiment | null>(null);
@@ -220,8 +221,11 @@ export default function Dashboard() {
                     </div>
                 </div>
 
-                {calibrationWarning && (
-                    <CalibrationWarningBanner message={calibrationWarning} />
+                {calibrationWarning && !isCalibrationWarningDismissed && (
+                    <CalibrationWarningBanner 
+                        message={calibrationWarning} 
+                        onDismiss={() => setIsCalibrationWarningDismissed(true)} 
+                    />
                 )}
 
                 <ActiveExperimentBanner
@@ -230,7 +234,7 @@ export default function Dashboard() {
                     isSubmitting={isSubmitting}
                     onStopExperiment={handleStopExperiment}
                     onStartSetup={() => setShowSetup(true)}
-                    isCalibrationValid={isCalibrationValid}
+                    isCalibrationValid={isCalibrationValid || isCalibrationWarningDismissed}
                 />
 
                 {showSetup && (

@@ -35,6 +35,4 @@ The easiest way to deploy your Next.js app is to use the [Vercel Platform](https
 
 Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
 
-TODO: 
-- Colocar um lembrete para calibrar no inicio de cada experiencia;
-- Colocar um botao de ignorar a calibração;
+TODO:
