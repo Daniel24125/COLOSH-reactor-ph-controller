@@ -52,15 +52,23 @@ class RealADC:
             logger.error(f"Failed to initialize RealADC: {e}")
             
 
-    def read_voltage(self, compartment_id: int) -> float:
+    def read_voltage(self, compartment_id: int, max_retries: int = 4) -> float:
         chan = self.channels.get(compartment_id)
         if not chan:
             raise RuntimeError(f"ADC not initialized or invalid compartment ID: {compartment_id}")
-        try:
-            # Get raw voltage
-            return round(chan.voltage, 4)
-        except Exception as e:
-            raise RuntimeError(f"Hardware error reading voltage: {e}")
+            
+        last_err = None
+        for attempt in range(max_retries):
+            try:
+                # Get raw voltage
+                return round(chan.voltage, 4)
+            except Exception as e:
+                last_err = e
+                # EREMOTEIO (121) is extremely common when stepper motor EMI disrupts I2C ACKs.
+                # Sleep briefly to let the electrical noise settle before retrying.
+                time.sleep(0.05)
+                
+        raise RuntimeError(f"Hardware error reading voltage after {max_retries} attempts: {last_err}")
 
 
 class RealPeristalticPump:
