@@ -32,6 +32,8 @@ def get_gpio_chip():
     return _CHIP_HANDLE
 
 
+
+
 class RealADC:
     def __init__(self):
         self.channels = {}
@@ -48,6 +50,7 @@ class RealADC:
             logger.info("RealADC initialized.")
         except Exception as e:
             logger.error(f"Failed to initialize RealADC: {e}")
+            
 
     def read_voltage(self, compartment_id: int) -> float:
         chan = self.channels.get(compartment_id)

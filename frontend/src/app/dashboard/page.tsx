@@ -125,8 +125,8 @@ export default function Dashboard() {
     }, [fetchProjectsList]);
 
     const handleManualDose = useCallback((pumpId: number) => {
-        dosePump(pumpId, "forward", 50);
-        toast.info(`Override: Activated Pump ${pumpId} for 50 steps`);
+        dosePump(pumpId, "forward");
+        toast.info(`Override: Activated Pump ${pumpId}`);
     }, [dosePump]);
 
     const handleStopExperiment = useCallback(async () => {

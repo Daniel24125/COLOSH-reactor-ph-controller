@@ -19,7 +19,7 @@ interface MqttContextValue {
     status: Status;
     setStatus: React.Dispatch<React.SetStateAction<Status>>;
     eventLogs: LogEvent[];
-    dosePump: (pumpId: number, direction: "forward" | "reverse", steps: number) => void;
+    dosePump: (pumpId: number, direction: "forward" | "reverse", steps?: number) => void;
     updateAutoThresholds: (experimentId: string, phMin: number, phMax: number) => void;
     publishCommand: (topic: string, payload: object) => void;
 }
@@ -93,9 +93,11 @@ export function MqttProvider({ children }: { children: ReactNode }) {
         };
     }, []);
 
-    const dosePump = (pumpId: number, direction: "forward" | "reverse", steps: number) => {
+    const dosePump = (pumpId: number, direction: "forward" | "reverse", steps?: number) => {
         if (client && isConnected) {
-            client.publish("reactor/control/pump/manual", JSON.stringify({ pump_id: pumpId, direction, steps }));
+            const payload: any = { pump_id: pumpId, direction };
+            if (steps !== undefined) payload.steps = steps;
+            client.publish("reactor/control/pump/manual", JSON.stringify(payload));
         }
     };
 

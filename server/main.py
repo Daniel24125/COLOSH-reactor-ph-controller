@@ -22,7 +22,7 @@ class ReactorController:
     RECOVERY_SLEEP_SEC = 5       # Sleep after an unhandled loop error
 
     # ── Dosing defaults (used when experiment config is absent) ────────────
-    DEFAULT_DOSE_STEPS = 50
+    DEFAULT_DOSE_STEPS = 500
     DEFAULT_MAX_PUMP_SEC = 30
     DEFAULT_COOLDOWN_SEC = 10
 
