@@ -34,7 +34,7 @@ class PhController:
     #     3. Collect the output in a graduated cylinder.
     #     4. STEPS_PER_ML = steps_run / volume_collected_ml
     #
-    STEPS_PER_ML: float = 100.0   # ← TODO: replace with your measured value
+    # (Note: STEPS_PER_ML is now fetched dynamically from pp_config.json per-compartment)
 
     # GAIN: how many steps to add per 0.1 pH unit of error.
     #   Default: 50 steps / 1.0 pH unit = 5 steps per 0.1 pH.
@@ -121,21 +121,4 @@ class PhController:
             f"[{max_time_sec}s / {self.SEC_PER_STEP}s per step])"
         )
         return steps
-
-    def calculate_volume_ml(self, steps: int) -> float:
-        """
-        Convert a step count to an estimated dispensed volume in millilitres.
-
-        Requires STEPS_PER_ML to be calibrated for your specific pump and
-        tubing combination (see the constant definition above).
-
-        Args:
-            steps: Number of stepper-motor steps.
-
-        Returns:
-            Estimated volume in mL, rounded to 3 decimal places.
-        """
-        if self.STEPS_PER_ML <= 0:
-            raise ValueError("STEPS_PER_ML must be a positive number.")
-        return round(steps / self.STEPS_PER_ML, 3)
 

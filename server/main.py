@@ -251,7 +251,18 @@ class ReactorController:
         # inside pump.dose().
         ph_error = target_min - current_ph
         steps = self.ph_ctrl.calculate_steps(ph_error, max_time)
-        volume_ml = self.ph_ctrl.calculate_volume_ml(steps)
+        
+        # Load the dynamic calibration config for true volume calculation
+        try:
+            config = self.pump_config_manager.get_pump_config(f"location_{compartment_id}")
+            spm = float(config.get("steps_per_ml", 1000.0))
+        except Exception:
+            spm = 1000.0
+            
+        if spm <= 0: 
+            spm = 1000.0
+            
+        volume_ml = round(steps / spm, 3)
 
         # Do not allow overlapping auto-doses for the same compartment
         active_task = self.active_dosing_tasks.get(compartment_id)

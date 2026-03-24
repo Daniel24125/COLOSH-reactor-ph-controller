@@ -26,53 +26,6 @@ export async function POST(req: Request) {
 
         const db = await getDb();
 
-        // Ensure tables exist in case the DB was deleted and backend hasn't run
-        await db.exec(`
-            CREATE TABLE IF NOT EXISTS projects (
-                id TEXT PRIMARY KEY,
-                name TEXT NOT NULL,
-                researcher_name TEXT,
-                created_at DATETIME DEFAULT CURRENT_TIMESTAMP
-            );
-            CREATE TABLE IF NOT EXISTS experiments (
-                id TEXT PRIMARY KEY,
-                project_id TEXT,
-                name TEXT NOT NULL,
-                measurement_interval_mins INTEGER DEFAULT 1,
-                c1_min_ph REAL NOT NULL,
-                c1_max_ph REAL NOT NULL,
-                c2_min_ph REAL NOT NULL,
-                c2_max_ph REAL NOT NULL,
-                c3_min_ph REAL NOT NULL,
-                c3_max_ph REAL NOT NULL,
-                max_pump_time_sec INTEGER NOT NULL,
-                mixing_cooldown_sec INTEGER NOT NULL,
-                manual_dose_steps INTEGER NOT NULL,
-                status TEXT DEFAULT 'active',
-                created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-                FOREIGN KEY (project_id) REFERENCES projects(id)
-            );
-            CREATE TABLE IF NOT EXISTS telemetry (
-                id TEXT PRIMARY KEY,
-                experiment_id TEXT,
-                timestamp DATETIME DEFAULT CURRENT_TIMESTAMP,
-                compartment_1_ph REAL,
-                compartment_2_ph REAL,
-                compartment_3_ph REAL,
-                FOREIGN KEY (experiment_id) REFERENCES experiments(id)
-            );
-            CREATE TABLE IF NOT EXISTS experiment_logs (
-                id TEXT PRIMARY KEY,
-                experiment_id TEXT,
-                timestamp DATETIME DEFAULT CURRENT_TIMESTAMP,
-                level TEXT NOT NULL,
-                message TEXT NOT NULL,
-                compartment INTEGER,
-                FOREIGN KEY (experiment_id) REFERENCES experiments(id)
-            );
-            CREATE INDEX IF NOT EXISTS idx_telemetry_experiment_time ON telemetry(experiment_id, timestamp);
-        `);
-
         let activeProjectId = projectId;
 
         // 1. Create Project if no ID was provided (assuming user selected 'Create New')
