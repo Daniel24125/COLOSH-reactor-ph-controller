@@ -5,3 +5,7 @@ python-dotenv==1.0.1
 # but we include a placeholder below for documentation purposes. 
 # It will fail on Windows, which is why hal.py catches the ImportError
 # lgpio>=0.2.2.0
+
+fastapi>=0.100.0
+uvicorn>=0.20.0
+pydantic>=2.0.0

@@ -1,10 +1,5 @@
 import { NextResponse } from 'next/server';
-import sqlite3 from 'sqlite3';
-import { open } from 'sqlite';
-import path from 'path';
-
-// Connect to the SQLite DB created by the Python backend
-const dbPath = path.resolve('../server/reactor.db');
+import { getDb } from '@/lib/db';
 
 export async function GET(req: Request) {
     try {
@@ -15,12 +10,7 @@ export async function GET(req: Request) {
             return NextResponse.json({ error: 'Missing experiment_id query parameter' }, { status: 400 });
         }
 
-        const db = await open({
-            filename: dbPath,
-            driver: sqlite3.Database
-        });
-
-        await db.exec('PRAGMA journal_mode=WAL;');
+        const db = await getDb();
 
         const telemetry = await db.all(
             'SELECT * FROM telemetry WHERE experiment_id = ? ORDER BY timestamp ASC',

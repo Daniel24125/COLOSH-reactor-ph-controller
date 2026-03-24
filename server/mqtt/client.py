@@ -55,6 +55,7 @@ class MQTTClient:
             client.subscribe("pump/control/prime")
             client.subscribe("pump/control/calibrate_run")
             client.subscribe("pump/config/save_calibration")
+            client.subscribe("reactor/db/request")
         else:
             logger.error(f"Failed to connect, return code {reason_code}")
 
@@ -104,6 +105,53 @@ class MQTTClient:
                 self.on_pump_save_calibration(data),
                 self._loop
             )
+        elif topic == "reactor/db/request":
+            asyncio.run_coroutine_threadsafe(
+                self._handle_db_query(data),
+                self._loop
+            )
+
+    async def _handle_db_query(self, payload: dict):
+        try:
+            req_id = payload.get('id', 'unknown')
+            method = payload.get('method')
+            sql = payload.get('sql')
+            params = payload.get('params', [])
+
+            if req_id == 'unknown':
+                return
+
+            import sqlite3
+            db_path = os.getenv("SQLITE_DB_PATH", "reactor.db")
+            
+            def run_query():
+                with sqlite3.connect(db_path) as conn:
+                    conn.row_factory = sqlite3.Row
+                    cursor = conn.cursor()
+                    if method == "exec":
+                        cursor.executescript(sql)
+                        # executescript handles commit inherently
+                        return {"success": True}
+                    
+                    cursor.execute(sql, params)
+                    if method == "all":
+                        return {"success": True, "data": [dict(r) for r in cursor.fetchall()]}
+                    elif method == "get":
+                        row = cursor.fetchone()
+                        return {"success": True, "data": dict(row) if row else None}
+                    elif method == "run":
+                        conn.commit()
+                        return {"success": True, "lastID": cursor.lastrowid, "changes": cursor.rowcount}
+                    raise Exception(f"Invalid method: {method}")
+
+            result = await asyncio.to_thread(run_query)
+        except Exception as e:
+            result = {"success": False, "error": str(e)}
+
+        try:
+            self.client.publish(f"reactor/db/response/{req_id}", json.dumps(result))
+        except Exception as e:
+            logger.error(f"Failed to publish DB response: {e}")
 
     def publish_pump_active_status(self, location: str, is_running: bool):
         """Publish pump running status for the frontend."""

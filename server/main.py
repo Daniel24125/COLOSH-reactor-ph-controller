@@ -2,6 +2,7 @@ import asyncio
 import logging
 import time
 import os
+import uvicorn
 from dotenv import load_dotenv
 
 from hardware import get_hardware

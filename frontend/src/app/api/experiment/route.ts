@@ -1,10 +1,5 @@
 import { NextResponse } from 'next/server';
-import sqlite3 from 'sqlite3';
-import { open } from 'sqlite';
-import path from 'path';
-
-// Connect to the SQLite DB created by the Python backend
-const dbPath = path.resolve('../server/reactor.db');
+import { getDb } from '@/lib/db';
 
 export async function POST(req: Request) {
     try {
@@ -29,12 +24,7 @@ export async function POST(req: Request) {
             return NextResponse.json({ error: 'Must provide either an existing projectId or a new projectName' }, { status: 400 });
         }
 
-        const db = await open({
-            filename: dbPath,
-            driver: sqlite3.Database
-        });
-
-        await db.exec('PRAGMA journal_mode=WAL;');
+        const db = await getDb();
 
         // Ensure tables exist in case the DB was deleted and backend hasn't run
         await db.exec(`
