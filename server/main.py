@@ -55,6 +55,7 @@ class ReactorController:
         self.last_dose_time = {c: 0.0 for c in self.COMPARTMENTS}
         self.last_measurement_time = 0.0
         self.sensor_error_logged = {c: False for c in self.COMPARTMENTS}
+        self.active_dosing_tasks = {c: None for c in self.COMPARTMENTS}
 
     # ── Event helpers ──────────────────────────────────────────────────────
 
@@ -251,10 +252,21 @@ class ReactorController:
         steps = self.ph_ctrl.calculate_steps(ph_error, max_time)
         volume_ml = self.ph_ctrl.calculate_volume_ml(steps)
 
+        # Do not allow overlapping auto-doses for the same compartment
+        active_task = self.active_dosing_tasks.get(compartment_id)
+        if active_task and not active_task.done():
+            return
+
         logger.info(
             f"Auto dosing: compartment {compartment_id} pH ({current_ph}) < {target_min} "
             f"[error={ph_error:.3f}]. Dosing {steps} steps (~{volume_ml} mL)."
         )
+        # Dispatch the blocking dose to a background task
+        self.active_dosing_tasks[compartment_id] = asyncio.create_task(
+            self._execute_dose(pump, compartment_id, "forward", steps, max_time, current_ph, target_min, ph_error, volume_ml)
+        )
+
+    async def _execute_dose(self, pump, compartment_id, direction, steps, max_time, current_ph, target_min, ph_error, volume_ml):
         await self._log_event(
             "INFO",
             f"Auto dosing: pH {current_ph} < {target_min} (Δ{ph_error:.2f}). "
@@ -262,12 +274,12 @@ class ReactorController:
             compartment_id
         )
         try:
-            await asyncio.to_thread(pump.dose, "forward", steps, max_time)
+            await asyncio.to_thread(pump.dose, direction, steps, max_time)
             # Record dose time only after a confirmed successful dose
             self.last_dose_time[compartment_id] = time.time()
         except Exception as exc:
             logger.error(f"Auto dose failed: {exc}")
-            await self._log_event("ERROR", f"Auto pump safety cutoff triggered: {exc}", pump_id)
+            await self._log_event("ERROR", f"Auto pump safety cutoff triggered: {exc}", compartment_id)
 
     # ── Run-loop helpers ───────────────────────────────────────────────────
 
@@ -332,9 +344,30 @@ class ReactorController:
         self.mqtt.publish_server_online()
         logger.info("Starting main reactor control loop...")
 
+        loop_last_experiment_id = None
+
         while self.running:
             try:
-                self.active_experiment = self.sqlite.get_active_experiment()
+                # Always fetch the authoritative DB state in the loop.
+                # Don't rely on self.active_experiment which might be mutated by MQTT callbacks
+                current_exp = self.sqlite.get_active_experiment()
+                self.active_experiment = current_exp
+
+                current_exp_id = current_exp["id"] if current_exp else None
+
+                if current_exp_id:
+                    if loop_last_experiment_id != current_exp_id:
+                        logger.info("New experiment started. Resetting telemetry clock.")
+                        self.last_measurement_time = 0.0
+                elif loop_last_experiment_id is not None:
+                    logger.info("Experiment stopped. Halting all actively running doses and primes.")
+                    for p in self.hw.pumps.values():
+                        if hasattr(p, "stop_dose"):
+                            p.stop_dose()
+                        if hasattr(p, "stop_prime"):
+                            p.stop_prime()
+
+                loop_last_experiment_id = current_exp_id
 
                 ph_data = await self._read_sensors()
                 await self._run_dosing(ph_data)
@@ -348,6 +381,12 @@ class ReactorController:
 
     def stop(self):
         self.running = False
+        logger.info("Shutting down. Halting all pumps...")
+        for p in self.hw.pumps.values():
+            if hasattr(p, "stop_dose"):
+                p.stop_dose()
+            if hasattr(p, "stop_prime"):
+                p.stop_prime()
         self.mqtt.publish_server_offline()
         self.mqtt.disconnect()
         logger.info("Reactor controller stopped.")

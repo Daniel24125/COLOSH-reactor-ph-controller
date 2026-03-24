@@ -49,6 +49,7 @@ class PeristalticPump:
         
         self._prime_thread = None
         self._stop_prime_event = threading.Event()
+        self._stop_dose_event = threading.Event()
 
     def set_enable(self, state: bool):
         logger.info(f"[MOCK PUMP] enable set to {state}")
@@ -58,13 +59,28 @@ class PeristalticPump:
         time.sleep(total_steps * safe_delay * 0.1) # Accelerated sleep for mock
         logger.info("[MOCK PUMP] Calibration run complete.")
 
+    def stop_dose(self):
+        """Signals an ongoing mock dose operation to stop early."""
+        self._stop_dose_event.set()
+
     def dose(self, direction: str, steps: int, max_time_sec: int = 30):
         expected_time = steps * 0.002
         if expected_time > max_time_sec:
             raise TimeoutError(f"Mock Pump cutoff: dose ({expected_time:.2f}s) > max ({max_time_sec}s).")
         
         logger.info(f"[MOCK PUMP] Dosing {steps} steps {direction}")
-        time.sleep(min(expected_time, 0.5)) # Cap sleep for UX in mock
+        self._stop_dose_event.clear()
+        
+        # Cap total mock sleep but chunk it so it can be interrupted
+        total_sleep = min(expected_time, 0.5)
+        chunk_size = 0.05
+        elapsed = 0.0
+        while elapsed < total_sleep:
+            if self._stop_dose_event.is_set():
+                logger.info("[MOCK PUMP] Dose stopped early.")
+                break
+            time.sleep(chunk_size)
+            elapsed += chunk_size
 
     def start_prime(self, direction: str = "forward"):
         """Starts a continuous background loop of step pulses."""

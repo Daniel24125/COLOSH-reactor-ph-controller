@@ -75,6 +75,7 @@ class RealPeristalticPump:
         # Threading support for continuous priming
         self._prime_thread = None
         self._stop_prime_event = threading.Event()
+        self._stop_dose_event = threading.Event()
         
         try:
             self.h_gpio = get_gpio_chip()
@@ -106,8 +107,13 @@ class RealPeristalticPump:
         finally:
             lgpio.gpio_write(self.h_gpio, self.en_pin, 1) # Disable
 
+    def stop_dose(self):
+        """Signals an ongoing dose operation to stop early."""
+        self._stop_dose_event.set()
+
     def dose(self, direction: str, steps: int, max_time_sec: int = 30):
         if self.h_gpio is None: return
+        self._stop_dose_event.clear()
         # Simple dose implementation for high-level handlers
         try:
             dir_val = 1 if direction in (1, "forward") else 0
@@ -117,6 +123,9 @@ class RealPeristalticPump:
             
             delay = 0.001
             for _ in range(steps):
+                if self._stop_dose_event.is_set():
+                    logger.info(f"Dose stopped early after {_} steps.")
+                    break
                 lgpio.gpio_write(self.h_gpio, self.step_pin, 1)
                 time.sleep(delay)
                 lgpio.gpio_write(self.h_gpio, self.step_pin, 0)
