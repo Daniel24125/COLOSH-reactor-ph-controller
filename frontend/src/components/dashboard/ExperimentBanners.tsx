@@ -39,6 +39,7 @@ interface ActiveExperimentBannerProps {
     onStopExperiment: () => void;
     onStartSetup: () => void;
     isCalibrationValid: boolean;
+    isOperational: boolean;
 }
 
 export const ActiveExperimentBanner = memo(function ActiveExperimentBanner({
@@ -48,6 +49,7 @@ export const ActiveExperimentBanner = memo(function ActiveExperimentBanner({
     onStopExperiment,
     onStartSetup,
     isCalibrationValid,
+    isOperational,
 }: ActiveExperimentBannerProps) {
     if (experiment) {
         return (
@@ -70,8 +72,9 @@ export const ActiveExperimentBanner = memo(function ActiveExperimentBanner({
                     )}
                     <button
                         onClick={onStopExperiment}
-                        disabled={isSubmitting}
-                        className="px-4 py-2 flex items-center gap-2 text-sm bg-red-500/10 hover:bg-red-500/20 text-red-500 rounded-lg transition-colors border border-red-500/20 shadow-lg shadow-red-900/10 disabled:opacity-50"
+                        disabled={isSubmitting || !isOperational}
+                        title={!isOperational ? "Cannot stop: System Offline" : ""}
+                        className="px-4 py-2 flex items-center gap-2 text-sm bg-red-500/10 hover:bg-red-500/20 text-red-500 rounded-lg transition-colors border border-red-500/20 shadow-lg shadow-red-900/10 disabled:opacity-50 disabled:cursor-not-allowed"
                     >
                         <Square className="w-4 h-4" />
                         {isSubmitting ? "Stopping..." : "Stop Experiment"}
@@ -92,9 +95,9 @@ export const ActiveExperimentBanner = memo(function ActiveExperimentBanner({
             </div>
             <button
                 onClick={onStartSetup}
-                disabled={!isCalibrationValid}
-                title={!isCalibrationValid ? "Probes must be calibrated before starting." : ""}
-                className="px-4 py-2 text-sm bg-indigo-600 hover:bg-indigo-500 text-white rounded-lg shadow-lg shadow-indigo-900/20 transition-all font-medium flex shrink-0 items-center justify-center disabled:opacity-50 disabled:hover:bg-indigo-600"
+                disabled={!isCalibrationValid || !isOperational}
+                title={!isOperational ? "Cannot start: System Offline" : !isCalibrationValid ? "Probes must be calibrated before starting." : ""}
+                className="px-4 py-2 text-sm bg-indigo-600 hover:bg-indigo-500 text-white rounded-lg shadow-lg shadow-indigo-900/20 transition-all font-medium flex shrink-0 items-center justify-center disabled:opacity-50 disabled:cursor-not-allowed disabled:hover:bg-indigo-600"
             >
                 Start Setup
             </button>

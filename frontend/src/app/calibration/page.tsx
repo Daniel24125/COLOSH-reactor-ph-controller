@@ -31,7 +31,8 @@ type CalibrationTab = "ph" | "pump";
 function CalibrationWizardContent() {
     const router = useRouter();
     const searchParams = useSearchParams();
-    const { publishCommand } = useMqtt();
+    const { publishCommand, isConnected, isServerOnline } = useMqtt();
+    const isOperational = isConnected && isServerOnline === true;
     const { user } = useUser();
 
     // Tab state: driven by ?tab=ph|pump URL param for shareability
@@ -217,6 +218,7 @@ function CalibrationWizardContent() {
                                 phValue={ph1}
                                 lockedVoltage={v1}
                                 rawVoltage={rawVoltage}
+                                isOperational={isOperational}
                                 onPhChange={setPh1}
                                 onLock={() => {
                                     if (rawVoltage !== null) {
@@ -233,6 +235,7 @@ function CalibrationWizardContent() {
                                 lockedVoltage={v2}
                                 rawVoltage={rawVoltage}
                                 isFirstLocked={v1 !== null}
+                                isOperational={isOperational}
                                 onPhChange={setPh2}
                                 onLock={() => {
                                     if (rawVoltage !== null) {
@@ -251,6 +254,7 @@ function CalibrationWizardContent() {
                                     ph2={ph2}
                                     activeCompartment={activeCompartment}
                                     isSaving={isSaving}
+                                    isOperational={isOperational}
                                     onSave={handleSaveCalibration}
                                 />
                             )}

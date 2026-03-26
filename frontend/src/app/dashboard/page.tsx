@@ -22,7 +22,8 @@ const SetupExperimentModal = dynamic(
 );
 
 export default function Dashboard() {
-    const { isConnected, phData, loggedTelemetry, status, setStatus, eventLogs, dosePump, publishCommand } = useMqtt();
+    const { isConnected, isServerOnline, phData, loggedTelemetry, status, setStatus, eventLogs, dosePump, publishCommand } = useMqtt();
+    const isOperational = isConnected && isServerOnline === true;
     const [showSetup, setShowSetup] = useState(false);
     const [isSubmitting, setIsSubmitting] = useState(false);
 
@@ -235,6 +236,7 @@ export default function Dashboard() {
                     onStopExperiment={handleStopExperiment}
                     onStartSetup={() => setShowSetup(true)}
                     isCalibrationValid={isCalibrationValid || isCalibrationWarningDismissed}
+                    isOperational={isOperational}
                 />
 
                 {showSetup && (
@@ -247,6 +249,7 @@ export default function Dashboard() {
                         onSubmit={handleSetupSubmit}
                         onToggleCreateProject={() => setIsCreatingProject(!isCreatingProject)}
                         onSelectProject={setSelectedProjectId}
+                        isOperational={isOperational}
                     />
                 )}
 
@@ -260,7 +263,7 @@ export default function Dashboard() {
 
                 <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
                     <ManualOverrideControl
-                        isConnected={isConnected}
+                        isOperational={isOperational}
                         onManualDose={handleManualDose}
                     />
 

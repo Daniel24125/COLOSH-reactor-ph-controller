@@ -1,0 +1,2050 @@
+This file is a merged representation of the entire codebase, combined into a single document by Repomix.
+
+<file_summary>
+This section contains a summary of this file.
+
+<purpose>
+This file contains a packed representation of the entire repository's contents.
+It is designed to be easily consumable by AI systems for analysis, code review,
+or other automated processes.
+</purpose>
+
+<file_format>
+The content is organized as follows:
+1. This summary section
+2. Repository information
+3. Directory structure
+4. Repository files (if enabled)
+5. Multiple file entries, each consisting of:
+  - File path as an attribute
+  - Full contents of the file
+</file_format>
+
+<usage_guidelines>
+- This file should be treated as read-only. Any changes should be made to the
+  original repository files, not this packed version.
+- When processing this file, use the file path to distinguish
+  between different files in the repository.
+- Be aware that this file may contain sensitive information. Handle it with
+  the same level of security as you would the original repository.
+</usage_guidelines>
+
+<notes>
+- Some files may have been excluded based on .gitignore rules and Repomix's configuration
+- Binary files are not included in this packed representation. Please refer to the Repository Structure section for a complete list of file paths, including binary files
+- Files matching patterns in .gitignore are excluded
+- Files matching default ignore patterns are excluded
+- Files are sorted by Git change count (files with more changes are at the bottom)
+</notes>
+
+</file_summary>
+
+<directory_structure>
+config/
+  pp_config.json
+  pump_helpers.py
+database/
+  __init__.py
+  sqlite_client.py
+hardware/
+  __init__.py
+  hal.py
+  mock_hardware.py
+  real_hardware.py
+mqtt/
+  __init__.py
+  client.py
+tests/
+  test_i2c.py
+  test_peristaltic.py
+  test_stepper_prove.py
+  test_stepper.py
+  test_system.py
+.env.example
+main.py
+ph_controller.py
+reactor.db
+reactor.db-shm
+reactor.db-wal
+README.md
+requirements.txt
+</directory_structure>
+
+<files>
+This section contains the contents of the repository's files.
+
+<file path="config/pp_config.json">
+{
+  "location_1": {
+    "name": "Pump 1",
+    "dir_pin": 21,
+    "step_pin": 20,
+    "en_pin": 16,
+    "steps_per_ml": 8351.13
+  },
+  "location_2": {
+    "name": "Pump 2",
+    "dir_pin": 23,
+    "step_pin": 24,
+    "en_pin": 25,
+    "steps_per_ml": 8351.13
+  },
+  "location_3": {
+    "name": "Pump 3",
+    "dir_pin": 22,
+    "step_pin": 27,
+    "en_pin": 17,
+    "steps_per_ml": 8351.13
+  }
+}
+</file>
+
+<file path="config/pump_helpers.py">
+import json
+import os
+from pathlib import Path
+
+# Get the directory where this file is located to construct an absolute path to the config
+CONFIG_DIR = Path(__file__).parent
+DEFAULT_CONFIG_PATH = CONFIG_DIR / "pp_config.json"
+
+class PumpConfigManager:
+    """Helper class to manage the peristaltic pump configurations."""
+    
+    def __init__(self, config_file_path: str = str(DEFAULT_CONFIG_PATH)):
+        self.config_filepath = config_file_path
+        # Ensure the file exists (if not, you could optionally create a default here)
+        if not os.path.exists(self.config_filepath):
+            raise FileNotFoundError(f"Configuration file not found at: {self.config_filepath}")
+
+    def _read_config(self) -> dict:
+        """Reads and returns the JSON config data as a dictionary."""
+        with open(self.config_filepath, 'r') as file:
+            return json.load(file)
+
+    def _write_config(self, config_data: dict):
+        """Writes the provided dictionary back to the JSON config file."""
+        with open(self.config_filepath, 'w') as file:
+            json.dump(config_data, file, indent=2)
+
+    def get_all_pumps(self) -> dict:
+        """Retrieves all pump configurations."""
+        return self._read_config()
+
+    def get_pump_config(self, location: str) -> dict:
+        """
+        Retrieves the configuration for a specific pump location.
+        Example location format: 'location_1', 'location_2', etc.
+        """
+        config = self._read_config()
+        if location not in config:
+            raise KeyError(f"Pump location '{location}' not found in configuration.")
+        return config[location]
+
+    def save_calibration(self, location: str, steps_per_ml: float):
+        """
+        Saves a new calibration value (steps_per_ml) for a specific pump location.
+        """
+        config = self._read_config()
+        if location not in config:
+            raise KeyError(f"Pump location '{location}' not found in configuration.")
+        
+        # Update the value
+        config[location]["steps_per_ml"] = float(steps_per_ml)
+        
+        # Save back to file
+        self._write_config(config)
+        print(f"Successfully updated calibration for {location} to {steps_per_ml} steps/mL.")
+
+    def update_pump_pins(self, location: str, dir_pin: int, step_pin: int, en_pin: int):
+        """
+        Updates the hardware GPIO pins for a specific pump location.
+        """
+        config = self._read_config()
+        if location not in config:
+            raise KeyError(f"Pump location '{location}' not found in configuration.")
+        
+        config[location]["dir_pin"] = int(dir_pin)
+        config[location]["step_pin"] = int(step_pin)
+        config[location]["en_pin"] = int(en_pin)
+        
+        self._write_config(config)
+        print(f"Successfully updated GPIO pins for {location}.")
+
+# Example usage/tester
+if __name__ == "__main__":
+    # Initialize the manager
+    manager = PumpConfigManager()
+    
+    # Read info for location 1
+    print("Fetching config for location_1...")
+    loc1_config = manager.get_pump_config("location_1")
+    print(loc1_config)
+    
+    # Save a calibration test
+    print("\nUpdating calibration for location_2...")
+    manager.save_calibration("location_2", 8400.5)
+    
+    # Confirm it was updated
+    loc2_config = manager.get_pump_config("location_2")
+    print(f"Updated config for location_2: {loc2_config}")
+</file>
+
+<file path="database/__init__.py">
+from .sqlite_client import SQLiteClient
+
+__all__ = ["SQLiteClient"]
+</file>
+
+<file path="database/sqlite_client.py">
+import sqlite3
+import logging
+import os
+from datetime import datetime
+import uuid
+
+logger = logging.getLogger(__name__)
+
+class SQLiteClient:
+    def __init__(self, db_path=None):
+        self.db_path = db_path or os.getenv("SQLITE_DB_PATH", "reactor.db")
+        self._init_db()
+
+    def _init_db(self):
+        try:
+            with sqlite3.connect(self.db_path) as conn:
+                conn.execute('PRAGMA journal_mode=WAL;')
+                cursor = conn.cursor()
+                cursor.execute('''
+                    CREATE TABLE IF NOT EXISTS projects (
+                        id TEXT PRIMARY KEY,
+                        name TEXT NOT NULL,
+                        researcher_name TEXT,
+                        created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+                    )
+                ''')
+                cursor.execute('''
+                    CREATE TABLE IF NOT EXISTS experiments (
+                        id TEXT PRIMARY KEY,
+                        project_id TEXT,
+                        name TEXT NOT NULL,
+                        measurement_interval_mins INTEGER DEFAULT 1,
+                        c1_min_ph REAL NOT NULL,
+                        c1_max_ph REAL NOT NULL,
+                        c2_min_ph REAL NOT NULL,
+                        c2_max_ph REAL NOT NULL,
+                        c3_min_ph REAL NOT NULL,
+                        c3_max_ph REAL NOT NULL,
+                        max_pump_time_sec INTEGER NOT NULL,
+                        mixing_cooldown_sec INTEGER NOT NULL,
+                        manual_dose_steps INTEGER NOT NULL,
+                        status TEXT DEFAULT 'active',
+                        created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+                        FOREIGN KEY (project_id) REFERENCES projects(id)
+                    )
+                ''')
+                cursor.execute('''
+                    CREATE TABLE IF NOT EXISTS telemetry (
+                        id TEXT PRIMARY KEY,
+                        experiment_id TEXT,
+                        timestamp DATETIME DEFAULT CURRENT_TIMESTAMP,
+                        compartment_1_ph REAL,
+                        compartment_2_ph REAL,
+                        compartment_3_ph REAL,
+                        FOREIGN KEY (experiment_id) REFERENCES experiments(id)
+                    )
+                ''')
+                cursor.execute('''
+                    CREATE TABLE IF NOT EXISTS experiment_logs (
+                        id TEXT PRIMARY KEY,
+                        experiment_id TEXT,
+                        timestamp DATETIME DEFAULT CURRENT_TIMESTAMP,
+                        level TEXT NOT NULL,
+                        message TEXT NOT NULL,
+                        compartment INTEGER,
+                        FOREIGN KEY (experiment_id) REFERENCES experiments(id)
+                    )
+                ''')
+                cursor.execute('''
+                    CREATE TABLE IF NOT EXISTS calibrations (
+                        id INTEGER PRIMARY KEY AUTOINCREMENT,
+                        compartment INTEGER,
+                        slope REAL,
+                        intercept REAL,
+                        researcher TEXT,
+                        calibrated_at DATETIME DEFAULT CURRENT_TIMESTAMP
+                    )
+                ''')
+                cursor.execute('CREATE INDEX IF NOT EXISTS idx_telemetry_experiment_time ON telemetry(experiment_id, timestamp);')
+                
+                # Migration for existing calibrations table
+                try:
+                    cursor.execute('ALTER TABLE calibrations ADD COLUMN researcher TEXT;')
+                except sqlite3.OperationalError:
+                    pass # Column already exists
+                    
+                conn.commit()
+                logger.info("SQLite Database initialized with WAL and telemetry tracking.")
+        except Exception as e:
+            logger.error(f"Error initializing SQLite DB: {e}")
+
+    def get_latest_calibrations(self):
+        try:
+            with sqlite3.connect(self.db_path) as conn:
+                conn.execute('PRAGMA journal_mode=WAL;')
+                conn.row_factory = sqlite3.Row
+                cursor = conn.cursor()
+                
+                calibrations = {}
+                for comp in [1, 2, 3]:
+                    cursor.execute('''
+                        SELECT slope, intercept FROM calibrations 
+                        WHERE compartment = ? 
+                        ORDER BY calibrated_at DESC 
+                        LIMIT 1
+                    ''', (comp,))
+                    row = cursor.fetchone()
+                    if row:
+                        calibrations[comp] = dict(row)
+                return calibrations
+        except Exception as e:
+            logger.error(f"Error getting latest calibrations: {e}")
+            return {}
+
+    def get_active_experiment(self):
+        try:
+            with sqlite3.connect(self.db_path) as conn:
+                conn.execute('PRAGMA journal_mode=WAL;')
+                conn.row_factory = sqlite3.Row
+                cursor = conn.cursor()
+                cursor.execute('''
+                    SELECT * FROM experiments WHERE status = 'active' ORDER BY id DESC LIMIT 1
+                ''')
+                row = cursor.fetchone()
+                return dict(row) if row else None
+        except Exception as e:
+            logger.error(f"Error getting active experiment: {e}")
+            return None
+
+    def create_project(self, name: str, researcher_name: str = None):
+        try:
+            with sqlite3.connect(self.db_path) as conn:
+                conn.execute('PRAGMA journal_mode=WAL;')
+                cursor = conn.cursor()
+                project_id = str(uuid.uuid4())
+                cursor.execute('INSERT INTO projects (id, name, researcher_name) VALUES (?, ?, ?)', (project_id, name, researcher_name))
+                conn.commit()
+                return project_id
+        except Exception as e:
+            logger.error(f"Error creating project: {e}")
+            return None
+
+    def create_experiment(self, project_id: str, name: str, config: dict):
+        try:
+            with sqlite3.connect(self.db_path) as conn:
+                conn.execute('PRAGMA journal_mode=WAL;')
+                cursor = conn.cursor()
+                cursor.execute('''
+                    UPDATE experiments SET status = 'completed' WHERE status = 'active'
+                ''')
+                experiment_id = str(uuid.uuid4())
+                cursor.execute('''
+                    INSERT INTO experiments (
+                        id, project_id, name, measurement_interval_mins, c1_min_ph, c1_max_ph, 
+                        c2_min_ph, c2_max_ph, c3_min_ph, c3_max_ph, max_pump_time_sec, 
+                        mixing_cooldown_sec, manual_dose_steps, status
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'active')
+                ''', (
+                    experiment_id, project_id, name, config.get('measurement_interval_mins', 1),
+                    config.get('c1_min_ph'), config.get('c1_max_ph'),
+                    config.get('c2_min_ph'), config.get('c2_max_ph'),
+                    config.get('c3_min_ph'), config.get('c3_max_ph'),
+                    config.get('max_pump_time_sec'), config.get('mixing_cooldown_sec'), 
+                    config.get('manual_dose_steps')
+                ))
+                conn.commit()
+                return experiment_id
+        except Exception as e:
+            logger.error(f"Error creating experiment: {e}")
+            return None
+
+    def log_telemetry(self, experiment_id: str, ph_data: dict):
+        try:
+            with sqlite3.connect(self.db_path) as conn:
+                conn.execute('PRAGMA journal_mode=WAL;')
+                cursor = conn.cursor()
+                log_id = str(uuid.uuid4())
+                cursor.execute('''
+                    INSERT INTO telemetry (id, experiment_id, compartment_1_ph, compartment_2_ph, compartment_3_ph)
+                    VALUES (?, ?, ?, ?, ?)
+                ''', (log_id, experiment_id, ph_data.get(1), ph_data.get(2), ph_data.get(3)))
+                conn.commit()
+        except Exception as e:
+            logger.error(f"Error logging telemetry: {e}")
+
+    def log_event(self, experiment_id: str, level: str, message: str, compartment: int = None):
+        try:
+            with sqlite3.connect(self.db_path) as conn:
+                conn.execute('PRAGMA journal_mode=WAL;')
+                cursor = conn.cursor()
+                log_id = str(uuid.uuid4())
+                cursor.execute('''
+                    INSERT INTO experiment_logs (id, experiment_id, level, message, compartment)
+                    VALUES (?, ?, ?, ?, ?)
+                ''', (log_id, experiment_id, level, message, compartment))
+                conn.commit()
+        except Exception as e:
+            logger.error(f"Error logging event: {e}")
+</file>
+
+<file path="hardware/__init__.py">
+from .hal import get_hardware
+
+__all__ = ["get_hardware"]
+</file>
+
+<file path="hardware/hal.py">
+import os
+import logging
+from config.pump_helpers import PumpConfigManager
+
+logger = logging.getLogger(__name__)
+
+class HardwareAbstractions:
+    def __init__(self, adc, pumps, PeristalticPump, GPIO_AVAILABLE):
+        self.adc = adc
+        self.pumps = pumps
+        self.PeristalticPump = PeristalticPump
+        self.GPIO_AVAILABLE = GPIO_AVAILABLE
+
+def get_hardware() -> HardwareAbstractions:
+    """Factory to get the correct hardware implementation based on OS."""
+    
+    # Load configuration
+    config_mgr = PumpConfigManager()
+    p1 = config_mgr.get_pump_config("location_1")
+    p2 = config_mgr.get_pump_config("location_2")
+    p3 = config_mgr.get_pump_config("location_3")
+    
+    if os.name == 'nt':
+        logger.info("Windows detected. Loading mock hardware.")
+        from .mock_hardware import MockADC, PeristalticPump as MockPump
+        adc = MockADC()
+        # High-level pump interface for both dosing and calibration
+        pumps = {
+            1: MockPump(dir_pin=p1["dir_pin"], step_pin=p1["step_pin"], en_pin=p1["en_pin"], steps_per_ml=p1.get("steps_per_ml", 1000.0)),
+            2: MockPump(dir_pin=p2["dir_pin"], step_pin=p2["step_pin"], en_pin=p2["en_pin"], steps_per_ml=p2.get("steps_per_ml", 1000.0)),
+            3: MockPump(dir_pin=p3["dir_pin"], step_pin=p3["step_pin"], en_pin=p3["en_pin"], steps_per_ml=p3.get("steps_per_ml", 1000.0))
+        }
+        PeristalticPump = MockPump
+        GPIO_AVAILABLE = False
+    else:
+        logger.info("POSIX detected. Loading real hardware via lgpio/I2C.")
+        from .real_hardware import RealADC, RealPeristalticPump
+        adc = RealADC()
+        # Use RealPeristalticPump for all pump operations (Dosing + Calibration)
+        pumps = {
+            1: RealPeristalticPump(dir_pin=p1["dir_pin"], step_pin=p1["step_pin"], en_pin=p1["en_pin"], steps_per_ml=p1.get("steps_per_ml", 1000.0)),
+            2: RealPeristalticPump(dir_pin=p2["dir_pin"], step_pin=p2["step_pin"], en_pin=p2["en_pin"], steps_per_ml=p2.get("steps_per_ml", 1000.0)),
+            3: RealPeristalticPump(dir_pin=p3["dir_pin"], step_pin=p3["step_pin"], en_pin=p3["en_pin"], steps_per_ml=p3.get("steps_per_ml", 1000.0))
+        }
+        PeristalticPump = RealPeristalticPump
+        GPIO_AVAILABLE = True
+    
+    return HardwareAbstractions(adc, pumps, PeristalticPump, GPIO_AVAILABLE)
+</file>
+
+<file path="hardware/mock_hardware.py">
+import time
+import math
+import logging
+import threading
+logger = logging.getLogger(__name__)
+
+class MockADC:
+    # Default Nernst calibration constants — must match defaults used in main.py
+    _DEFAULT_SLOPE = -0.05916       # V/pH at 25°C (ideal Nernstian)
+    _DEFAULT_INTERCEPT = 0.0        # V at pH 7 (no offset)
+
+    def __init__(self):
+        self._start_time = time.time()
+        # Configurable target pH per compartment (used to back-calculate a realistic voltage)
+        self._target_ph = {1: 7.0, 2: 7.0, 3: 7.0}
+        logger.debug("Initialized MockADC")
+
+    def set_target_ph(self, compartment_id: int, ph: float):
+        """Set the simulated target pH for a compartment."""
+        self._target_ph[compartment_id] = ph
+        logger.debug(f"MockADC: Compartment {compartment_id} target pH set to {ph}")
+
+    def read_voltage(self, compartment_id: int) -> float:
+        """
+        Returns a simulated voltage using the inverse Nernst equation at 37°C.
+        This mirrors how main.py converts voltage → pH, but in reverse:
+            voltage = intercept - live_slope * (target_ph - 7.0)
+        A small sine-wave noise (±0.003V) is added to simulate real electrode drift.
+        """
+        target_ph = self._target_ph.get(compartment_id, 7.0)
+        # Temperature-compensated slope (37°C = 310.15 K, ref 25°C = 298.15 K)
+        live_slope = self._DEFAULT_SLOPE * (310.15 / 298.15)
+        # Inverse Nernst: voltage that a real electrode would output at target_ph
+        base_voltage = self._DEFAULT_INTERCEPT - live_slope * (target_ph - 7.0)
+        # Small drift noise (±0.003 V) to simulate electrode stabilisation
+        elapsed = time.time() - self._start_time
+        noise = math.sin(elapsed / 10.0 + compartment_id) * 0.003
+        return round(base_voltage + noise, 4)
+
+
+class PeristalticPump:
+    """Mock implementation of the high-level PeristalticPump class for non-Pi systems."""
+    def __init__(self, dir_pin: int, step_pin: int, en_pin: int, steps_per_ml: float = 1000.0):
+        self.dir_pin = dir_pin
+        self.step_pin = step_pin
+        self.en_pin = en_pin
+        self.steps_per_ml = steps_per_ml
+        logger.info(f"[MOCK PUMP] Initialized with pins DIR:{dir_pin}, STEP:{step_pin}, EN:{en_pin}")
+        
+        self._prime_thread = None
+        self._stop_prime_event = threading.Event()
+        self._stop_dose_event = threading.Event()
+
+    def set_enable(self, state: bool):
+        logger.info(f"[MOCK PUMP] enable set to {state}")
+
+    def run_calibration(self, total_steps: int = 10000, safe_delay: float = 0.002):
+        logger.info(f"[MOCK PUMP] Running calibration for {total_steps} steps...")
+        time.sleep(total_steps * safe_delay * 0.1) # Accelerated sleep for mock
+        logger.info("[MOCK PUMP] Calibration run complete.")
+
+    def stop_dose(self):
+        """Signals an ongoing mock dose operation to stop early."""
+        self._stop_dose_event.set()
+
+    def dose(self, direction: str, steps: int, max_time_sec: int = 30):
+        expected_time = steps * 0.002
+        if expected_time > max_time_sec:
+            raise TimeoutError(f"Mock Pump cutoff: dose ({expected_time:.2f}s) > max ({max_time_sec}s).")
+        
+        logger.info(f"[MOCK PUMP] Dosing {steps} steps {direction}")
+        self._stop_dose_event.clear()
+        
+        # Cap total mock sleep but chunk it so it can be interrupted
+        total_sleep = min(expected_time, 0.5)
+        chunk_size = 0.05
+        elapsed = 0.0
+        while elapsed < total_sleep:
+            if self._stop_dose_event.is_set():
+                logger.info("[MOCK PUMP] Dose stopped early.")
+                break
+            time.sleep(chunk_size)
+            elapsed += chunk_size
+
+    def start_prime(self, direction: str = "forward"):
+        """Starts a continuous background loop of step pulses."""
+        if self._prime_thread and self._prime_thread.is_alive():
+            return # Already running
+
+        self._stop_prime_event.clear()
+        self._prime_thread = threading.Thread(target=self._prime_loop, args=(direction,), daemon=True)
+        self._prime_thread.start()
+
+    def stop_prime(self):
+        """Signals the background loop to stop and disable the motor."""
+        self._stop_prime_event.set()
+        if self._prime_thread:
+            self._prime_thread.join(timeout=1.0)
+
+    def _prime_loop(self, direction: str):
+        """Mock background loop logic."""
+        logger.info(f"[MOCK PUMP] Starting continuous prime: {direction}")
+        try:
+            while not self._stop_prime_event.is_set():
+                time.sleep(0.1) # Prevent CPU pegging
+        finally:
+            logger.info(f"[MOCK PUMP] Stopped continuous prime.")
+</file>
+
+<file path="hardware/real_hardware.py">
+import logging
+import time
+import threading
+
+logger = logging.getLogger(__name__)
+
+# To prevent import errors on Windows, we catch ImportErrors when these files are parsed.
+# Since we only import this file on non-Windows (or at least when real hardware is intended),
+# these imports should normally succeed on the Raspberry Pi.
+try:
+    import lgpio
+    import board
+    import busio
+    import adafruit_ads1x15.ads1115 as ADS
+    from adafruit_ads1x15.analog_in import AnalogIn
+except ImportError as e:
+    logger.warning(f"Could not import hardware libraries: {e}. If on Windows, this is expected.")
+
+
+# Shared GPIO chip handle to avoid "GPIO busy" errors
+_CHIP_HANDLE = None
+
+def get_gpio_chip():
+    global _CHIP_HANDLE
+    if _CHIP_HANDLE is None:
+        try:
+            # lgpio.gpiochip_open(0) might vary depending on RPi model/kernel
+            _CHIP_HANDLE = lgpio.gpiochip_open(0)
+        except Exception as e:
+            logger.error(f"Fatal: Failed to open gpiochip 0: {e}")
+            raise e
+    return _CHIP_HANDLE
+
+
+
+
+class RealADC:
+    def __init__(self):
+        self.channels = {}
+        try:
+            self.i2c = busio.I2C(board.SCL, board.SDA)
+            self.ads = ADS.ADS1115(self.i2c)
+            from adafruit_ads1x15.ads1x15 import Pin
+            # Assuming compartment 1 -> A0, compartment 2 -> A1, compartment 3 -> A2
+            self.channels = {
+                1: AnalogIn(self.ads, Pin.A0),
+                2: AnalogIn(self.ads, Pin.A1),
+                3: AnalogIn(self.ads, Pin.A2)
+            }
+            logger.info("RealADC initialized.")
+        except Exception as e:
+            logger.error(f"Failed to initialize RealADC: {e}")
+            
+
+    def read_voltage(self, compartment_id: int, max_retries: int = 4) -> float:
+        chan = self.channels.get(compartment_id)
+        if not chan:
+            raise RuntimeError(f"ADC not initialized or invalid compartment ID: {compartment_id}")
+            
+        last_err = None
+        for attempt in range(max_retries):
+            try:
+                # Get raw voltage
+                return round(chan.voltage, 4)
+            except Exception as e:
+                last_err = e
+                # EREMOTEIO (121) is extremely common when stepper motor EMI disrupts I2C ACKs.
+                # Sleep briefly to let the electrical noise settle before retrying.
+                time.sleep(0.05)
+                
+        raise RuntimeError(f"Hardware error reading voltage after {max_retries} attempts: {last_err}")
+
+
+class RealPeristalticPump:
+    """High-level pump controller for calibration and precise dosing using lgpio."""
+    def __init__(self, dir_pin: int, step_pin: int, en_pin: int, steps_per_ml: float = 1000.0):
+        self.dir_pin = dir_pin
+        self.step_pin = step_pin
+        self.en_pin = en_pin
+        self.steps_per_ml = steps_per_ml
+        self.h_gpio = None
+        
+        # Threading support for continuous priming
+        self._prime_thread = None
+        self._stop_prime_event = threading.Event()
+        self._stop_dose_event = threading.Event()
+        
+        try:
+            self.h_gpio = get_gpio_chip()
+            lgpio.gpio_claim_output(self.h_gpio, self.dir_pin)
+            lgpio.gpio_claim_output(self.h_gpio, self.step_pin)
+            lgpio.gpio_claim_output(self.h_gpio, self.en_pin)
+            # Disable motor by default (EN = HIGH for TMC2209)
+            lgpio.gpio_write(self.h_gpio, self.en_pin, 1)
+            logger.info(f"RealPeristalticPump initialized (DIR:{dir_pin}, STEP:{step_pin}, EN:{en_pin}).")
+        except Exception as e:
+            logger.error(f"Failed to initialize RealPeristalticPump pins: {e}")
+
+    def set_enable(self, state: bool):
+        if self.h_gpio is None: return
+        val = 0 if state else 1 # Low = Enabled
+        lgpio.gpio_write(self.h_gpio, self.en_pin, val)
+
+    def run_calibration(self, total_steps: int = 10000, safe_delay: float = 0.002):
+        logger.info(f"Running real calibration for {total_steps} steps...")
+        if self.h_gpio is None: return
+        try:
+            lgpio.gpio_write(self.h_gpio, self.en_pin, 0) # Enable
+            time.sleep(0.1)
+            for _ in range(total_steps):
+                lgpio.gpio_write(self.h_gpio, self.step_pin, 1)
+                time.sleep(safe_delay)
+                lgpio.gpio_write(self.h_gpio, self.step_pin, 0)
+                time.sleep(safe_delay)
+        finally:
+            lgpio.gpio_write(self.h_gpio, self.en_pin, 1) # Disable
+
+    def stop_dose(self):
+        """Signals an ongoing dose operation to stop early."""
+        self._stop_dose_event.set()
+
+    def dose(self, direction: str, steps: int, max_time_sec: int = 30):
+        if self.h_gpio is None: return
+        self._stop_dose_event.clear()
+        # Simple dose implementation for high-level handlers
+        try:
+            dir_val = 1 if direction in (1, "forward") else 0
+            lgpio.gpio_write(self.h_gpio, self.dir_pin, dir_val)
+            lgpio.gpio_write(self.h_gpio, self.en_pin, 0)
+            time.sleep(0.05)
+            
+            delay = 0.001
+            for _ in range(steps):
+                if self._stop_dose_event.is_set():
+                    logger.info(f"Dose stopped early after {_} steps.")
+                    break
+                lgpio.gpio_write(self.h_gpio, self.step_pin, 1)
+                time.sleep(delay)
+                lgpio.gpio_write(self.h_gpio, self.step_pin, 0)
+                time.sleep(delay)
+        finally:
+            lgpio.gpio_write(self.h_gpio, self.en_pin, 1)
+
+    def start_prime(self, direction: str = "forward"):
+        """Starts a continuous background loop of step pulses."""
+        if self._prime_thread and self._prime_thread.is_alive():
+            return # Already running
+
+        self._stop_prime_event.clear()
+        # Daemon thread ensures it dies if the main program crashes
+        self._prime_thread = threading.Thread(target=self._prime_loop, args=(direction,), daemon=True)
+        self._prime_thread.start()
+
+    def stop_prime(self):
+        """Signals the background loop to stop and disable the motor."""
+        self._stop_prime_event.set()
+        if self._prime_thread:
+            self._prime_thread.join(timeout=1.0)
+
+    def _prime_loop(self, direction: str):
+        """The actual continuous pulsing logic (runs in the background)."""
+        if self.h_gpio is None: return
+        
+        dir_val = 1 if direction in (1, "forward") else 0
+        lgpio.gpio_write(self.h_gpio, self.dir_pin, dir_val)
+        lgpio.gpio_write(self.h_gpio, self.en_pin, 0) # Enable driver (Active LOW)
+        
+        delay = 0.001 # 1ms delay for safe speed
+        try:
+            while not self._stop_prime_event.is_set():
+                lgpio.gpio_write(self.h_gpio, self.step_pin, 1)
+                time.sleep(delay)
+                lgpio.gpio_write(self.h_gpio, self.step_pin, 0)
+                time.sleep(delay)
+        finally:
+            # Guarantee the motor goes back to sleep when stopped
+            try:
+                lgpio.gpio_write(self.h_gpio, self.en_pin, 1)
+            except: pass
+</file>
+
+<file path="mqtt/__init__.py">
+from .client import MQTTClient
+
+__all__ = ["MQTTClient"]
+</file>
+
+<file path="mqtt/client.py">
+import json
+import logging
+import asyncio
+import os
+import paho.mqtt.client as mqtt
+
+logger = logging.getLogger(__name__)
+
+class MQTTClient:
+    SERVER_STATUS_TOPIC = "reactor/server/status"
+
+    def __init__(self, broker_url=None, port=None, client_id="reactor_core"):
+        self.broker_url = broker_url or os.getenv("MQTT_BROKER_URL", "localhost")
+        self.port = port or int(os.getenv("MQTT_PORT", "1883"))
+        self.client_id = client_id
+
+        # Callbacks set by main.py
+        self.on_manual_control = None
+        self.on_auto_update = None
+        self.on_experiment_config = None
+        self.on_calibration_control = None
+        self.on_pump_prime = None
+        self.on_pump_calibrate_run = None
+        self.on_pump_save_calibration = None
+
+        self.client = mqtt.Client(mqtt.CallbackAPIVersion.VERSION2, client_id=self.client_id)
+        self.client.on_connect = self._on_connect
+        self.client.on_message = self._on_message
+
+        # Asyncio event loop reference — captured at connect() time from the main thread
+        self._loop = None
+
+        # Last Will and Testament — broker delivers this automatically on unexpected disconnect
+        offline_payload = json.dumps({"status": "offline"})
+        self.client.will_set(self.SERVER_STATUS_TOPIC, payload=offline_payload, qos=1, retain=True)
+
+    def connect(self):
+        try:
+            # Capture the running asyncio loop here, while we are still in the asyncio thread.
+            # _on_message runs in paho's background thread which has no event loop of its own.
+            self._loop = asyncio.get_running_loop()
+            self.client.connect(self.broker_url, self.port, 60)
+            self.client.loop_start()
+            logger.info(f"Started MQTT loop, connecting to {self.broker_url}:{self.port}")
+        except Exception as e:
+            logger.error(f"Failed to connect to MQTT broker: {e}")
+
+    def _on_connect(self, client, userdata, flags, reason_code, properties):
+        if reason_code == 0:
+            logger.info("Connected to MQTT Broker!")
+            client.subscribe("reactor/control/pump/manual")
+            client.subscribe("reactor/control/pump/auto")
+            client.subscribe("reactor/control/experiment")
+            client.subscribe("reactor/control/calibration")
+            client.subscribe("pump/control/prime")
+            client.subscribe("pump/control/calibrate_run")
+            client.subscribe("pump/config/save_calibration")
+            client.subscribe("reactor/db/request")
+        else:
+            logger.error(f"Failed to connect, return code {reason_code}")
+
+    def _on_message(self, client, userdata, msg):
+        topic = msg.topic
+        payload = msg.payload.decode("utf-8")
+        logger.debug(f"Received message on {topic}: {payload}")
+        
+        try:
+            data = json.loads(payload)
+        except json.JSONDecodeError:
+            logger.error(f"Invalid JSON received on {topic}: {payload}")
+            return
+
+        if topic == "reactor/control/pump/manual" and self.on_manual_control:
+            asyncio.run_coroutine_threadsafe(
+                self.on_manual_control(data),
+                self._loop
+            )
+        elif topic == "reactor/control/pump/auto" and self.on_auto_update:
+            asyncio.run_coroutine_threadsafe(
+                self.on_auto_update(data),
+                self._loop
+            )
+        elif topic == "reactor/control/experiment" and self.on_experiment_config:
+            asyncio.run_coroutine_threadsafe(
+                self.on_experiment_config(data),
+                self._loop
+            )
+        elif topic == "reactor/control/calibration" and self.on_calibration_control:
+            asyncio.run_coroutine_threadsafe(
+                self.on_calibration_control(data),
+                self._loop
+            )
+        elif topic == "pump/control/prime" and self.on_pump_prime:
+            asyncio.run_coroutine_threadsafe(
+                self.on_pump_prime(data),
+                self._loop
+            )
+        elif topic == "pump/control/calibrate_run" and self.on_pump_calibrate_run:
+            asyncio.run_coroutine_threadsafe(
+                self.on_pump_calibrate_run(data),
+                self._loop
+            )
+        elif topic == "pump/config/save_calibration" and self.on_pump_save_calibration:
+            asyncio.run_coroutine_threadsafe(
+                self.on_pump_save_calibration(data),
+                self._loop
+            )
+        elif topic == "reactor/db/request":
+            asyncio.run_coroutine_threadsafe(
+                self._handle_db_query(data),
+                self._loop
+            )
+
+    async def _handle_db_query(self, payload: dict):
+        try:
+            req_id = payload.get('id', 'unknown')
+            method = payload.get('method')
+            sql = payload.get('sql')
+            params = payload.get('params', [])
+
+            if req_id == 'unknown':
+                return
+
+            import sqlite3
+            db_path = os.getenv("SQLITE_DB_PATH", "reactor.db")
+            
+            def run_query():
+                with sqlite3.connect(db_path) as conn:
+                    conn.row_factory = sqlite3.Row
+                    cursor = conn.cursor()
+                    if method == "exec":
+                        cursor.executescript(sql)
+                        # executescript handles commit inherently
+                        return {"success": True}
+                    
+                    cursor.execute(sql, params)
+                    if method == "all":
+                        return {"success": True, "data": [dict(r) for r in cursor.fetchall()]}
+                    elif method == "get":
+                        row = cursor.fetchone()
+                        return {"success": True, "data": dict(row) if row else None}
+                    elif method == "run":
+                        conn.commit()
+                        return {"success": True, "lastID": cursor.lastrowid, "changes": cursor.rowcount}
+                    raise Exception(f"Invalid method: {method}")
+
+            result = await asyncio.to_thread(run_query)
+        except Exception as e:
+            result = {"success": False, "error": str(e)}
+
+        try:
+            self.client.publish(f"reactor/db/response/{req_id}", json.dumps(result))
+        except Exception as e:
+            logger.error(f"Failed to publish DB response: {e}")
+
+    def publish_pump_active_status(self, location: str, is_running: bool):
+        """Publish pump running status for the frontend."""
+        try:
+            self.client.publish("pump/status/active", json.dumps({
+                "location": location,
+                "is_running": is_running
+            }))
+        except Exception as e:
+            logger.error(f"Failed to publish pump active status: {e}")
+
+    def publish_telemetry(self, ph_data: dict):
+        """Publish real-time pH telemetry. ph_data: {1: 7.0, 2: 7.1, 3: 6.9}"""
+        try:
+            self.client.publish("reactor/telemetry/ph", json.dumps(ph_data))
+        except Exception as e:
+            logger.error(f"Failed to publish real-time telemetry: {e}")
+
+    def publish_logged_telemetry(self, ph_data: dict):
+        """Publish pH telemetry aligned with DB logging interval."""
+        try:
+            self.client.publish("reactor/telemetry/logged", json.dumps(ph_data))
+        except Exception as e:
+            logger.error(f"Failed to publish logged telemetry: {e}")
+
+    def publish_status(self, status_data: dict):
+        """Publish system status."""
+        try:
+            self.client.publish("reactor/status", json.dumps(status_data))
+        except Exception as e:
+            logger.error(f"Failed to publish status: {e}")
+
+    def publish_raw_voltage(self, voltage_data: dict):
+        """Publish raw voltage for calibration."""
+        try:
+            self.client.publish("reactor/calibration/raw", json.dumps(voltage_data))
+        except Exception as e:
+            logger.error(f"Failed to publish raw voltage: {e}")
+
+    def publish_event(self, level: str, message: str, compartment: int = None):
+        """Publish event logs."""
+        from datetime import datetime
+        try:
+            payload = {
+                "level": level,
+                "message": message,
+                "compartment": compartment,
+                "timestamp": datetime.utcnow().isoformat() + "Z"
+            }
+            self.client.publish("reactor/events", json.dumps(payload))
+        except Exception as e:
+            logger.error(f"Failed to publish event: {e}")
+
+    def publish_server_online(self):
+        """Publish online status. Call this after the MQTT connection is confirmed."""
+        try:
+            self.client.publish(
+                self.SERVER_STATUS_TOPIC,
+                json.dumps({"status": "online"}),
+                qos=1,
+                retain=True,
+            )
+            logger.info("Published server status: online")
+        except Exception as e:
+            logger.error(f"Failed to publish online status: {e}")
+
+    def publish_server_offline(self):
+        """Explicitly publish offline status before a clean shutdown."""
+        try:
+            self.client.publish(
+                self.SERVER_STATUS_TOPIC,
+                json.dumps({"status": "offline"}),
+                qos=1,
+                retain=True,
+            )
+            logger.info("Published server status: offline")
+        except Exception as e:
+            logger.error(f"Failed to publish offline status: {e}")
+
+    def disconnect(self):
+        self.client.loop_stop()
+        self.client.disconnect()
+</file>
+
+<file path="tests/test_i2c.py">
+import sys
+import time
+import argparse
+
+def test_i2c_busio():
+    print("Testing I2C connection using board/busio...")
+    try:
+        import board
+        import busio
+    except ImportError as e:
+        print(f"[-] Error importing board/busio: {e}")
+        print("[-] Please ensure adafruit-blinka is installed.")
+        return False
+        
+    try:
+        print("[+] Initializing I2C bus...")
+        # board.SCL and board.SDA typically map to I2C bus 1 on Raspberry Pi
+        i2c = busio.I2C(board.SCL, board.SDA)
+        print("[+] I2C bus initialized successfully.")
+        
+        print("[+] Scanning I2C bus...")
+        # Need to lock the bus before scanning
+        while not i2c.try_lock():
+            time.sleep(0.01)
+            
+        try:
+            devices = i2c.scan()
+            if devices:
+                print(f"[+] Found {len(devices)} I2C device(s) at addresses: {[hex(device) for device in devices]}")
+            else:
+                print("[-] No I2C devices found on the bus.")
+        finally:
+            i2c.unlock()
+            
+        return True
+    except ValueError as e:
+        print(f"[-] ValueError during I2C busio test: {e}")
+        print("[-] This usually means the I2C interface is disabled in raspi-config.")
+        return False
+    except PermissionError as e:
+        print(f"[-] PermissionError during I2C busio test: {e}")
+        print("[-] Check if your user is in the 'i2c' group (e.g. `sudo usermod -aG i2c $USER`).")
+        return False
+    except Exception as e:
+        print(f"[-] Error during I2C busio test: {type(e).__name__}: {e}")
+        return False
+
+def test_ads1115():
+    print("\nTesting ADS1115 specific connection...")
+    try:
+        import board
+        import busio
+        import adafruit_ads1x15.ads1115 as ADS
+        from adafruit_ads1x15.analog_in import AnalogIn
+        from adafruit_ads1x15.ads1x15 import Pin
+    except ImportError as e:
+        print(f"[-] Error importing adafruit_ads1x15: {e}")
+        return False
+        
+    try:
+        i2c = busio.I2C(board.SCL, board.SDA)
+        print("[+] Attempting to initialize ADS1115...")
+        ads = ADS.ADS1115(i2c)
+        print("[+] ADS1115 object created.")
+        
+        print("[+] Attempting to read voltage from Channel 0 (P0)...")
+        chan = AnalogIn(ads, Pin.A0)
+        voltage = chan.voltage
+        print(f"[+] Successfully read voltage: {voltage:.4f}V")
+        return True
+    except Exception as e:
+        print(f"[-] Error during ADS1115 test: {type(e).__name__}: {e}")
+        print(f"[-] This typically happens when the ADS1115 is not properly connected to the I2C pins.")
+        return False
+
+if __name__ == "__main__":
+    parser = argparse.ArgumentParser(description="Test I2C connection and ADS1115.")
+    parser.add_argument("--scan-only", action="store_true", help="Only scan the I2C bus, skip ADS1115 test")
+    args = parser.parse_args()
+
+    print("=" * 40)
+    print("Started I2C Diagnostic Tests")
+    print("=" * 40)
+    
+    busio_ok = test_i2c_busio()
+    
+    ads_ok = None
+    if not args.scan_only:
+        ads_ok = test_ads1115()
+    
+    print("\n" + "=" * 40)
+    print("Test Summary:")
+    print("-" * 40)
+    print(f"I2C Bus Init & Scan: {'PASS' if busio_ok else 'FAIL'}")
+    if not args.scan_only:
+        print(f"ADS1115 Read Test:   {'PASS' if ads_ok else 'FAIL'}")
+    print("=" * 40)
+    
+    if not busio_ok or (not args.scan_only and not ads_ok):
+        sys.exit(1)
+</file>
+
+<file path="tests/test_peristaltic.py">
+import RPi.GPIO as GPIO
+import time
+
+class PeristalticPump:
+    def __init__(self, dir_pin: int, step_pin: int, en_pin: int, steps_per_ml: float = 1000.0):
+        self.dir_pin = dir_pin
+        self.step_pin = step_pin
+        self.en_pin = en_pin
+        self.steps_per_ml = steps_per_ml
+        
+        # Initialize GPIO
+        GPIO.setmode(GPIO.BCM)
+        GPIO.setup(self.dir_pin, GPIO.OUT)
+        GPIO.setup(self.step_pin, GPIO.OUT)
+        GPIO.setup(self.en_pin, GPIO.OUT)
+        
+        # Disable motor by default (EN = HIGH for TMC2209)
+        GPIO.output(self.en_pin, GPIO.HIGH)
+        # Set default states
+        GPIO.output(self.step_pin, GPIO.LOW)
+        GPIO.output(self.dir_pin, GPIO.LOW)
+
+    def run_calibration(self, total_steps: int = 10000, safe_delay: float = 0.002):
+        print("Running calibration... Weigh the output and divide total_steps by measured mL.")
+        try:
+            # Enable motor
+            GPIO.output(self.en_pin, GPIO.LOW)
+            time.sleep(0.1) # Brief pause to let driver settle
+            
+            for _ in range(total_steps):
+                GPIO.output(self.step_pin, GPIO.HIGH)
+                time.sleep(safe_delay)
+                GPIO.output(self.step_pin, GPIO.LOW)
+                time.sleep(safe_delay)
+        finally:
+            # Disable motor
+            GPIO.output(self.en_pin, GPIO.HIGH)
+
+    def inject(self, volume_ml: float, flow_rate_ml_min: float):
+        # Math calculations
+        total_steps = int(volume_ml * self.steps_per_ml)
+        steps_per_sec = (flow_rate_ml_min * self.steps_per_ml) / 60.0
+        
+        if steps_per_sec > 0:
+            delay = 1.0 / (steps_per_sec * 2.0)
+        else:
+            delay = 0
+
+        # Output calculated parameters
+        print(f"Calculated Total Steps: {total_steps}")
+        print(f"Calculated Delay: {delay:.6f} seconds")
+        
+        try:
+            # Enable motor
+            GPIO.output(self.en_pin, GPIO.LOW)
+            # Set Direction
+            GPIO.output(self.dir_pin, GPIO.LOW)
+            time.sleep(0.1) # Brief pause to let driver settle
+            
+            for _ in range(total_steps):
+                GPIO.output(self.step_pin, GPIO.HIGH)
+                time.sleep(delay)
+                GPIO.output(self.step_pin, GPIO.LOW)
+                time.sleep(delay)
+        finally:
+            # Disable motor for hardware safety
+            GPIO.output(self.en_pin, GPIO.HIGH)
+
+if __name__ == "__main__":
+    # Example BCM Pins
+    DIR_PIN = 17
+    STEP_PIN = 27
+    EN_PIN = 22
+
+    try:
+        # Instantiate the class
+        print("Initializing PeristalticPump...")
+        pump = PeristalticPump(dir_pin=DIR_PIN, step_pin=STEP_PIN, en_pin=EN_PIN, steps_per_ml=8351.13)
+        
+        # Demonstrating a calibration sequence
+        #print("\n--- Starting Calibration ---")
+        #pump.run_calibration(total_steps=10000, safe_delay=0.002)
+        
+        # Pause before the injection test
+        #print("\nWaiting 2 seconds before injection test...")
+        #time.sleep(2)
+        
+        # Demonstrating a dynamic injection 
+        # (5 mL at 20 mL/min)
+        print("\n--- Starting Injection ---")
+        print("Target: 5.0 mL at 20.0 mL/min")
+        pump.inject(volume_ml=2.0, flow_rate_ml_min=20.0)
+        
+        print("\nTest sequence complete!")
+        
+    except KeyboardInterrupt:
+        print("\nProcess interrupted by user.")
+    finally:
+        print("Cleaning up GPIO...")
+        GPIO.cleanup()
+        print("Cleanup done.")
+</file>
+
+<file path="tests/test_stepper_prove.py">
+import RPi.GPIO as GPIO
+import time
+pumps = {
+    "pump2":{
+        "dir_pin": 25,
+        "step_pin": 24,
+        "en_pin": 23
+    }
+}
+selected_pump = "pump2"
+EN_PIN = pumps[selected_pump]["en_pin"]
+STEP_PIN = pumps[selected_pump]["step_pin"]
+DIR_PIN = pumps[selected_pump]["dir_pin"]
+
+print(f"Testing Pump: EN={EN_PIN}, DIR={DIR_PIN}, STEP={STEP_PIN}")
+GPIO.setmode(GPIO.BCM)
+GPIO.setup([DIR_PIN, STEP_PIN, EN_PIN], GPIO.OUT)
+GPIO.output(EN_PIN, GPIO.LOW)
+GPIO.output(DIR_PIN, GPIO.HIGH)
+for _ in range(500):
+    GPIO.output(STEP_PIN, GPIO.HIGH)
+    time.sleep(0.001)
+    GPIO.output(STEP_PIN, GPIO.LOW)
+    time.sleep(0.001)
+GPIO.cleanup()
+print("Done!")
+</file>
+
+<file path="tests/test_stepper.py">
+import RPi.GPIO as GPIO
+import time
+
+# Pin Configuration (BCM numbering)
+
+# 21, 20, 16 are working
+# 22, 27, 17 are  working
+# 25, 24, 23 are working
+pumps = {
+    "pump1":{
+        "dir_pin": 21,
+        "step_pin": 20,
+        "en_pin": 16
+    },
+    "pump2":{
+        "dir_pin": 25,
+        "step_pin": 24,
+        "en_pin": 23
+    },
+    "pump3":{
+        "dir_pin": 22,
+        "step_pin": 27,
+        "en_pin": 17
+    }
+}
+
+selected_pump = "pump2"
+# Constants
+STEPS_PER_REV = 500
+# Adjust this delay to change the motor speed (smaller = faster, larger = slower)
+STEP_DELAY = 0.001  
+PAUSE_SEC = 1.0
+
+EN_PIN = pumps[selected_pump]["en_pin"]
+STEP_PIN = pumps[selected_pump]["step_pin"]
+DIR_PIN = pumps[selected_pump]["dir_pin"]
+
+
+def setup():
+    print("Setting up GPIO pins...")
+    GPIO.setmode(GPIO.BCM)
+    GPIO.setup([DIR_PIN, STEP_PIN, EN_PIN], GPIO.OUT)
+    
+    # Disable motor by default (simulate main.py behavior)
+    GPIO.output(EN_PIN, GPIO.HIGH)
+    time.sleep(0.1)
+    GPIO.output(STEP_PIN, GPIO.LOW)
+    GPIO.output(DIR_PIN, GPIO.LOW)
+
+def motor_step(steps, direction, delay):
+    print(f"Moving {'Clockwise' if direction == GPIO.HIGH else 'Counter-Clockwise'} for {steps} steps...")
+    GPIO.output(DIR_PIN, direction)
+    
+    for _ in range(steps):
+        GPIO.output(STEP_PIN, GPIO.HIGH)
+        time.sleep(delay)
+        GPIO.output(STEP_PIN, GPIO.LOW)
+        time.sleep(delay)
+
+def main():
+    try:
+        setup()
+        
+        print("Initializing test sequence...")
+        
+        # Enable the motor driver (Active LOW)
+        print("Enabling motor driver (EN = LOW)...")
+        GPIO.output(EN_PIN, GPIO.LOW)
+        time.sleep(0.1) # Brief pause after enabling to let driver settle
+        
+        # Move Clockwise
+        #print("Setting DIR to HIGH (Clockwise)...")
+        #motor_step(STEPS_PER_REV, GPIO.HIGH, STEP_DELAY)
+        
+        # Pause
+        #print(f"Pausing for {PAUSE_SEC} second(s)...")
+        #time.sleep(PAUSE_SEC)
+        
+        # Move Counter-Clockwise
+        print("Setting DIR to LOW (Counter-Clockwise)...")
+        motor_step(STEPS_PER_REV, GPIO.LOW, STEP_DELAY)
+        
+        print("Test sequence complete.")
+
+    except KeyboardInterrupt:
+        print("\nTest interrupted by user.")
+    finally:
+        print("Cleaning up GPIO...")
+        GPIO.cleanup()
+        print("Cleanup done. Exiting.")
+
+if __name__ == "__main__":
+    main()
+</file>
+
+<file path="tests/test_system.py">
+import os
+import sys
+import time
+import asyncio
+import RPi.GPIO as GPIO
+
+# Ensure we can import from the server directory when running from tests/
+sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
+
+from dotenv import load_dotenv
+from hardware import get_hardware
+from ph_controller import PhController
+from database import SQLiteClient
+from config.pump_helpers import PumpConfigManager
+
+# Pump Configurations based on pp_config.json
+PUMP_PINS = {
+    1: {"dir": 22, "step": 27, "en": 17},
+    2: {"dir": 25, "step": 24, "en": 23},
+    3: {"dir": 21, "step": 20, "en": 16}
+}
+
+async def test_sensors(hw, ph_ctrl):
+    print("\n=== Testing Sensors ===")
+    for compartment in [1, 2, 3]:
+        try:
+            voltage = await asyncio.to_thread(hw.adc.read_voltage, compartment)
+            ph = ph_ctrl.voltage_to_ph(compartment, voltage)
+            print(f"Compartment {compartment}: Voltage = {voltage:.4f} V, pH = {ph}")
+        except Exception as e:
+            print(f"Failed to read sensor from compartment {compartment}: {e}")
+
+def test_pumps(hw):
+    print("\n=== Testing Pumps (Direct GPIO) ===")
+    
+    # FREE lgpio RESOURCES FIRST before RPi.GPIO claims them
+    try:
+        import lgpio
+        if hasattr(hw, "h_gpio") and hw.h_gpio is not None:
+             for pump_id, pump in hw.pumps.items():
+                  # Free the pins if the object supports it
+                  try: lgpio.gpio_free(hw.h_gpio, pump.en_pin)
+                  except: pass
+                  try: lgpio.gpio_free(hw.h_gpio, pump.dir_pin)
+                  except: pass
+                  try: lgpio.gpio_free(hw.h_gpio, pump.step_pin)
+                  except: pass
+             lgpio.gpiochip_close(hw.h_gpio)
+             hw.h_gpio = None
+        else:
+            # Fallback for how RealPeristalticPump is implemented
+            if hasattr(hw, "pumps"):
+                for pump in hw.pumps.values():
+                    if hasattr(pump, "h_gpio") and pump.h_gpio is not None:
+                        try: lgpio.gpio_free(pump.h_gpio, pump.en_pin)
+                        except: pass
+                        try: lgpio.gpio_free(pump.h_gpio, pump.dir_pin)
+                        except: pass
+                        try: lgpio.gpio_free(pump.h_gpio, pump.step_pin)
+                        except: pass
+                # Attempt to close the shared chip handle if possible
+                try:
+                    from hardware.real_hardware import _CHIP_HANDLE
+                    if _CHIP_HANDLE is not None:
+                       lgpio.gpiochip_close(_CHIP_HANDLE)
+                       import hardware.real_hardware
+                       hardware.real_hardware._CHIP_HANDLE = None
+                except Exception as e:
+                    print(f"Warning freeing chip handle: {e}")
+    except Exception as e:
+        print(f"Warning freeing lgpio: {e}")
+        
+    # Setup GPIO
+    GPIO.setmode(GPIO.BCM)
+    for pump_id, pins in PUMP_PINS.items():
+        GPIO.setup(pins["en"], GPIO.OUT)
+        GPIO.setup(pins["step"], GPIO.OUT)
+        GPIO.setup(pins["dir"], GPIO.OUT)
+        
+        # Disable all motors initially (Active LOW)
+        GPIO.output(pins["en"], GPIO.HIGH)
+        GPIO.output(pins["step"], GPIO.LOW)
+        GPIO.output(pins["dir"], GPIO.LOW)
+    
+    steps = 4000 # Enough steps to easily see/hear the pump moving
+    delay = 0.001
+    
+    try:
+        for pump_id, pins in PUMP_PINS.items():
+            print(f"\n--- Motor Test: Pump {pump_id} ---")
+            print(f"Enabling motor driver (EN = LOW)...")
+            GPIO.output(pins["en"], GPIO.LOW)
+            time.sleep(0.1)
+            
+            print(f"Moving Counter-Clockwise for {steps} steps...")
+            GPIO.output(pins["dir"], GPIO.LOW)
+            for _ in range(steps):
+                GPIO.output(pins["step"], GPIO.HIGH)
+                time.sleep(delay)
+                GPIO.output(pins["step"], GPIO.LOW)
+                time.sleep(delay)
+                
+            # Disable motor again
+            GPIO.output(pins["en"], GPIO.HIGH)
+            time.sleep(1) # Pause between pumps
+    finally:
+        print("Cleaning up GPIO...")
+        GPIO.cleanup()
+
+async def test_system():
+    print("=== System Test Initialization ===")
+    hw = get_hardware()
+    
+    try:
+        db_path = os.getenv("SQLITE_DB_PATH", "reactor.db")
+        sqlite = SQLiteClient(db_path=db_path)
+        calibrations = sqlite.get_latest_calibrations()
+        print("Loaded calibrations from the database.")
+    except Exception as e:
+        print(f"Failed to load DB calibrations, using defaults: {e}")
+        calibrations = {}
+
+    ph_ctrl = PhController(calibrations)
+    
+    await test_sensors(hw, ph_ctrl)
+    
+    # Run the direct RPi.GPIO pump test
+    test_pumps(hw)
+
+    print("\n=== System Test Complete ===")
+
+
+if __name__ == "__main__":
+    load_dotenv()
+    try:
+        asyncio.run(test_system())
+    except KeyboardInterrupt:
+        print("\nTest interrupted by user. Exiting safely.")
+        try:
+            GPIO.cleanup()
+        except:
+            pass
+</file>
+
+<file path=".env.example">
+MQTT_BROKER_URL=localhost
+MQTT_PORT=1883
+SQLITE_DB_PATH=reactor.db
+</file>
+
+<file path="main.py">
+import asyncio
+import logging
+import time
+import os
+import uvicorn
+from dotenv import load_dotenv
+
+from hardware import get_hardware
+from database import SQLiteClient
+from mqtt import MQTTClient
+from ph_controller import PhController
+from config.pump_helpers import PumpConfigManager
+
+logger = logging.getLogger(__name__)
+
+
+class ReactorController:
+    # ── Compartment IDs ────────────────────────────────────────────────────
+    COMPARTMENTS = [1, 2, 3]
+
+    # ── Timing constants ───────────────────────────────────────────────────
+    CYCLE_INTERVAL_SEC = 1       # Main control-loop period
+    RECOVERY_SLEEP_SEC = 5       # Sleep after an unhandled loop error
+
+    # ── Dosing defaults (used when experiment config is absent) ────────────
+    DEFAULT_DOSE_STEPS = 500
+    DEFAULT_MAX_PUMP_SEC = 30
+    DEFAULT_COOLDOWN_SEC = 10
+
+    def __init__(self):
+        # 1. Hardware Abstraction Layer
+        self.hw = get_hardware()
+
+        # 2. Database
+        db_path = os.getenv("SQLITE_DB_PATH", "reactor.db")
+        self.sqlite = SQLiteClient(db_path=db_path)
+
+        # 3. MQTT
+        mqtt_url = os.getenv("MQTT_BROKER_URL", "localhost")
+        mqtt_port = int(os.getenv("MQTT_PORT", "1883"))
+        self.mqtt = MQTTClient(broker_url=mqtt_url, port=mqtt_port)
+        self.mqtt.on_manual_control = self.handle_manual_control
+        self.mqtt.on_auto_update = self.handle_auto_update
+        self.mqtt.on_experiment_config = self.handle_experiment_config
+        self.mqtt.on_calibration_control = self.handle_calibration_control
+        self.mqtt.on_pump_prime = self.handle_pump_prime
+        self.mqtt.on_pump_calibrate_run = self.handle_pump_calibrate_run
+        self.mqtt.on_pump_save_calibration = self.handle_pump_save_calibration
+
+        # 4. System state
+        self.running = False
+        self.active_experiment = None
+        self.pump_config_manager = PumpConfigManager()
+        self.ph_ctrl = PhController(self.sqlite.get_latest_calibrations())
+        self.calibration_mode_compartment = None
+        self.last_dose_time = {c: 0.0 for c in self.COMPARTMENTS}
+        self.last_measurement_time = 0.0
+        self.sensor_error_logged = {c: False for c in self.COMPARTMENTS}
+        self.active_dosing_tasks = {c: None for c in self.COMPARTMENTS}
+
+    # ── Event helpers ──────────────────────────────────────────────────────
+
+    async def _log_event(self, level: str, message: str, compartment: int = None):
+        """Broadcast an event via MQTT and persist it to the DB if an experiment is active."""
+        self.mqtt.publish_event(level, message, compartment)
+        if self.active_experiment:
+            await asyncio.to_thread(
+                self.sqlite.log_event,
+                self.active_experiment["id"], level, message, compartment
+            )
+
+    # ── MQTT command handlers ──────────────────────────────────────────────
+
+    async def handle_calibration_control(self, payload: dict):
+        """Handle calibration mode commands and post-save calibration reloads."""
+        action = payload.get("action")
+        command = payload.get("command")
+
+        if action == "reload_calibration":
+            logger.info("Reloading calibrations from DB...")
+            self.ph_ctrl.reload(self.sqlite.get_latest_calibrations())
+
+        if command == "start":
+            self.calibration_mode_compartment = payload.get("compartment")
+            logger.info(f"Entered calibration mode for compartment {self.calibration_mode_compartment}")
+        elif command == "stop":
+            self.calibration_mode_compartment = None
+            logger.info("Exited calibration mode")
+
+    async def handle_experiment_config(self, payload: dict):
+        """Reload the active experiment when its config changes."""
+        logger.info("Experiment config update received via MQTT. Applying dynamically.")
+        # Only reload if the update targets the currently active experiment
+        if self.active_experiment and self.active_experiment["id"] == payload.get("experiment_id"):
+            self.active_experiment = self.sqlite.get_active_experiment()
+
+    async def handle_manual_control(self, payload: dict):
+        """Execute a manual pump dose requested from the frontend."""
+        pump_id = payload.get("pump_id")
+        direction = payload.get("direction", "forward")
+        default_steps = (
+            self.active_experiment.get("manual_dose_steps", self.DEFAULT_DOSE_STEPS)
+            if self.active_experiment else self.DEFAULT_DOSE_STEPS
+        )
+        steps = payload.get("steps", default_steps)
+
+        if pump_id not in self.hw.pumps:
+            logger.warning(f"Manual control: pump_id {pump_id!r} not found in hardware — ignoring.")
+            return
+
+        pump = self.hw.pumps[pump_id]
+        max_time = (
+            self.active_experiment.get("max_pump_time_sec", self.DEFAULT_MAX_PUMP_SEC)
+            if self.active_experiment else self.DEFAULT_MAX_PUMP_SEC
+        )
+
+        logger.info(f"Manual override: dosing pump {pump_id} — {steps} steps {direction}")
+        await self._log_event("INFO", f"Manual override: pump {pump_id} activated for {steps} steps ({direction})", pump_id)
+        try:
+            await asyncio.to_thread(pump.dose, direction, steps, max_time)
+        except Exception as exc:
+            logger.error(f"Manual dose failed: {exc}")
+            await self._log_event("ERROR", f"Manual pump safety cutoff triggered: {exc}", pump_id)
+
+    async def handle_auto_update(self, payload: dict):
+        """Reload the active experiment after an automated threshold update."""
+        logger.info("Auto update triggered from MQTT. Reloading active experiment.")
+        self.active_experiment = self.sqlite.get_active_experiment()
+
+    # ── Peristaltic Pump Calibration Handlers ──────────────────────────────
+
+    def _get_calibration_pump(self, location: str):
+        """Map location_X to a persistent PeristalticPump instance from the hardware layer."""
+        try:
+            pump_id = int(location.split("_")[-1])
+            return self.hw.pumps.get(pump_id)
+        except (ValueError, IndexError):
+            logger.error(f"Invalid pump location format: {location}")
+            return None
+
+    async def handle_pump_prime(self, payload: dict):
+        location = payload.get("location")
+        state = payload.get("state")  # "ON" or "OFF"
+        
+        logger.info(f"Pump Prime {state}: {location}")
+        pump = self._get_calibration_pump(location)
+        if not pump: return
+        
+        if state == "ON":
+            try:
+                pump.start_prime()
+                self.mqtt.publish_pump_active_status(location, True)
+            except Exception as e:
+                logger.error(f"Prime ON failed: {e}")
+        elif state == "OFF":
+            try:
+                pump.stop_prime()
+                self.mqtt.publish_pump_active_status(location, False)
+            except Exception as e:
+                logger.error(f"Prime OFF failed: {e}")
+
+    async def handle_pump_calibrate_run(self, payload: dict):
+        location = payload.get("location")
+        
+        # Accept either explicit steps (legacy) or target_volume which we convert
+        # to steps using the current calibration so the dispense is volumetrically consistent.
+        if "target_volume" in payload:
+            try:
+                config = self.pump_config_manager.get_pump_config(location)
+                current_spm = float(config.get("steps_per_ml", 1000.0))
+                target_vol = float(payload["target_volume"])
+                steps = int(round(current_spm * target_vol))
+            except Exception as e:
+                logger.error(f"Failed to compute steps from target_volume: {e}")
+                return
+        else:
+            steps = int(payload.get("steps", 10000))
+        
+        logger.info(f"Pump Calibrate Run: {location} for {steps} steps")
+        pump = self._get_calibration_pump(location)
+        if not pump: return
+
+        self.mqtt.publish_pump_active_status(location, True)
+        try:
+            await asyncio.to_thread(pump.run_calibration, steps)
+        except Exception as e:
+            logger.error(f"Pump Calibrate Run Failed: {e}")
+        finally:
+            self.mqtt.publish_pump_active_status(location, False)
+
+    async def handle_pump_save_calibration(self, payload: dict):
+        location = payload.get("location")
+        target_ml = payload.get("target_ml")
+        actual_ml = payload.get("actual_ml")
+        
+        if not actual_ml or float(actual_ml) <= 0:
+            logger.error("Invalid actual_ml received for calibration save.")
+            return
+        if not target_ml or float(target_ml) <= 0:
+            logger.error("Invalid target_ml received for calibration save.")
+            return
+
+        try:
+            config = self.pump_config_manager.get_pump_config(location)
+            current_spm = float(config.get("steps_per_ml", 1000.0))
+        except Exception as e:
+            logger.error(f"Failed to read current calibration for {location}: {e}")
+            return
+
+        # New steps/mL = (current steps/mL × target_ml) / actual_ml
+        new_spm = (current_spm * float(target_ml)) / float(actual_ml)
+        logger.info(
+            f"Saving calibration for {location}: {current_spm:.2f} → {new_spm:.2f} steps/mL "
+            f"(target={target_ml} mL, actual={actual_ml} mL)"
+        )
+
+        try:
+            self.pump_config_manager.save_calibration(location, new_spm)
+        except Exception as e:
+            logger.error(f"Failed to save calibration: {e}")
+
+    # ── Dosing logic ───────────────────────────────────────────────────────
+
+    async def _dose_if_needed(self, compartment_id: int, current_ph: float):
+        """Dose base into a compartment if pH has dropped below the configured threshold."""
+        if not self.active_experiment:
+            return
+
+        target_min = self.active_experiment.get(f"c{compartment_id}_min_ph")
+        if target_min is None:
+            return
+
+        cooldown = self.active_experiment.get("mixing_cooldown_sec", self.DEFAULT_COOLDOWN_SEC)
+        if time.time() - self.last_dose_time[compartment_id] < cooldown:
+            return  # Still within cooldown window
+
+        if current_ph >= target_min:
+            return  # pH is within range — no dose required
+
+        pump_id = compartment_id  # 1:1 mapping: compartment ↔ pump
+        if pump_id not in self.hw.pumps:
+            logger.warning(f"Auto dosing: no pump found for compartment {compartment_id}")
+            return
+
+        pump = self.hw.pumps[pump_id]
+        max_time = self.active_experiment.get("max_pump_time_sec", self.DEFAULT_MAX_PUMP_SEC)
+
+        # Proportional dosing: steps scale with the magnitude of the pH error.
+        # calculate_steps derives max_steps from max_time using the pump's own
+        # SEC_PER_STEP constant — so we can never exceed the TimeoutError guard
+        # inside pump.dose().
+        ph_error = target_min - current_ph
+        steps = self.ph_ctrl.calculate_steps(ph_error, max_time)
+        
+        # Load the dynamic calibration config for true volume calculation
+        try:
+            config = self.pump_config_manager.get_pump_config(f"location_{compartment_id}")
+            spm = float(config.get("steps_per_ml", 1000.0))
+        except Exception:
+            spm = 1000.0
+            
+        if spm <= 0: 
+            spm = 1000.0
+            
+        volume_ml = round(steps / spm, 3)
+
+        # Do not allow overlapping auto-doses for the same compartment
+        active_task = self.active_dosing_tasks.get(compartment_id)
+        if active_task and not active_task.done():
+            return
+
+        logger.info(
+            f"Auto dosing: compartment {compartment_id} pH ({current_ph}) < {target_min} "
+            f"[error={ph_error:.3f}]. Dosing {steps} steps (~{volume_ml} mL)."
+        )
+        # Dispatch the blocking dose to a background task
+        self.active_dosing_tasks[compartment_id] = asyncio.create_task(
+            self._execute_dose(pump, compartment_id, "forward", steps, max_time, current_ph, target_min, ph_error, volume_ml)
+        )
+
+    async def _execute_dose(self, pump, compartment_id, direction, steps, max_time, current_ph, target_min, ph_error, volume_ml):
+        await self._log_event(
+            "INFO",
+            f"Auto dosing: pH {current_ph} < {target_min} (Δ{ph_error:.2f}). "
+            f"Pump activated: {steps} steps ≈ {volume_ml} mL.",
+            compartment_id
+        )
+        try:
+            await asyncio.to_thread(pump.dose, direction, steps, max_time)
+            # Record dose time only after a confirmed successful dose
+            self.last_dose_time[compartment_id] = time.time()
+        except Exception as exc:
+            logger.error(f"Auto dose failed: {exc}")
+            await self._log_event("ERROR", f"Auto pump safety cutoff triggered: {exc}", compartment_id)
+
+    # ── Run-loop helpers ───────────────────────────────────────────────────
+
+    async def _read_sensors(self) -> dict:
+        """Read voltage from all compartments, convert to pH, and stream calibration data."""
+        ph_data = {}
+        for compartment_id in self.COMPARTMENTS:
+            try:
+                voltage = await asyncio.to_thread(self.hw.adc.read_voltage, compartment_id)
+                ph_data[compartment_id] = self.ph_ctrl.voltage_to_ph(compartment_id, voltage)
+
+                if self.calibration_mode_compartment == compartment_id:
+                    self.mqtt.publish_raw_voltage({"raw_voltage": voltage})
+                    
+                if self.sensor_error_logged[compartment_id]:
+                    logger.info(f"Sensor for compartment {compartment_id} recovered.")
+                    await self._log_event("INFO", f"Sensor recovered.", compartment_id)
+                    self.sensor_error_logged[compartment_id] = False
+            except Exception as exc:
+                if not self.sensor_error_logged[compartment_id]:
+                    logger.error(f"Error reading sensor for compartment {compartment_id}: {exc}")
+                    await self._log_event("ERROR", f"Failed to read sensor: {exc}", compartment_id)
+                    self.sensor_error_logged[compartment_id] = True
+        return ph_data
+
+    async def _run_dosing(self, ph_data: dict):
+        """Run auto-dosing logic for every compartment based on the latest pH readings."""
+        for compartment_id, ph_val in ph_data.items():
+            await self._dose_if_needed(compartment_id, ph_val)
+
+    async def _log_telemetry(self, ph_data: dict):
+        """Persist a telemetry snapshot to SQLite when the logging interval has elapsed."""
+        if not self.active_experiment:
+            return
+        interval_mins = self.active_experiment.get("measurement_interval_mins", 1)
+        if time.time() - self.last_measurement_time >= interval_mins * 60:
+            await asyncio.to_thread(
+                self.sqlite.log_telemetry,
+                self.active_experiment["id"],
+                ph_data
+            )
+            self.mqtt.publish_logged_telemetry(ph_data)
+            self.last_measurement_time = time.time()
+
+    def _publish(self, ph_data: dict):
+        """Publish real-time telemetry and system status via MQTT."""
+        self.mqtt.publish_telemetry(ph_data)
+        self.mqtt.publish_status({
+            "health": "ok",
+            "active_experiment": self.active_experiment["id"] if self.active_experiment else None,
+            "db_connected": True,
+        })
+
+    # ── Main control loop ──────────────────────────────────────────────────
+
+    async def run_loop(self):
+        self.running = True
+        self.mqtt.connect()
+        # Give the paho background thread time to complete the TCP handshake
+        # before publishing retained status, which requires a live connection.
+        await asyncio.sleep(1)
+        self.mqtt.publish_server_online()
+        logger.info("Starting main reactor control loop...")
+
+        loop_last_experiment_id = None
+
+        while self.running:
+            try:
+                # Always fetch the authoritative DB state in the loop.
+                # Don't rely on self.active_experiment which might be mutated by MQTT callbacks
+                current_exp = self.sqlite.get_active_experiment()
+                self.active_experiment = current_exp
+
+                current_exp_id = current_exp["id"] if current_exp else None
+
+                if current_exp_id:
+                    if loop_last_experiment_id != current_exp_id:
+                        logger.info("New experiment started. Resetting telemetry clock.")
+                        self.last_measurement_time = 0.0
+                elif loop_last_experiment_id is not None:
+                    logger.info("Experiment stopped. Halting all actively running doses and primes.")
+                    for p in self.hw.pumps.values():
+                        if hasattr(p, "stop_dose"):
+                            p.stop_dose()
+                        if hasattr(p, "stop_prime"):
+                            p.stop_prime()
+
+                loop_last_experiment_id = current_exp_id
+
+                ph_data = await self._read_sensors()
+                await self._run_dosing(ph_data)
+                await self._log_telemetry(ph_data)
+                self._publish(ph_data)
+
+                await asyncio.sleep(self.CYCLE_INTERVAL_SEC)
+            except Exception as exc:
+                logger.error(f"Unhandled error in main loop: {exc}")
+                await asyncio.sleep(self.RECOVERY_SLEEP_SEC)
+
+    def stop(self):
+        self.running = False
+        logger.info("Shutting down. Halting all pumps...")
+        for p in self.hw.pumps.values():
+            if hasattr(p, "stop_dose"):
+                p.stop_dose()
+            if hasattr(p, "stop_prime"):
+                p.stop_prime()
+        self.mqtt.publish_server_offline()
+        self.mqtt.disconnect()
+        logger.info("Reactor controller stopped.")
+
+
+# ── Entry point ────────────────────────────────────────────────────────────
+
+async def main():
+    # Configure logging and environment only when run as the entry point
+    load_dotenv()
+    logging.basicConfig(
+        level=logging.INFO,
+        format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
+    )
+
+    controller = ReactorController()
+    try:
+        await controller.run_loop()
+    finally:
+        # Guaranteed cleanup on normal exit, KeyboardInterrupt, or any unhandled exception
+        controller.stop()
+
+
+if __name__ == "__main__":
+    asyncio.run(main())
+</file>
+
+<file path="ph_controller.py">
+import logging
+
+logger = logging.getLogger(__name__)
+
+
+class PhController:
+    """
+    Converts raw ADC voltage to a calibrated pH value using the
+    temperature-compensated Nernst equation at 37°C (standard reactor temp).
+
+    Formula:
+        live_slope = calibrated_slope * (TEMP_K / REF_TEMP_K)
+        pH = 7.0 + (intercept - voltage) / live_slope
+
+    Also provides proportional dosing calculations: the volume (and equivalent
+    stepper steps) of base to inject grows proportionally with the pH error,
+    so small deviations receive a gentle correction while large ones receive a
+    stronger dose — up to the experiment's configured maximum.
+    """
+
+    TEMP_K = 310.15     # Operating temperature: 37°C in Kelvin
+    REF_TEMP_K = 298.15 # Reference temperature: 25°C in Kelvin
+
+    # Ideal Nernstian defaults — used when no calibration exists for a compartment
+    DEFAULT_SLOPE = -0.05916    # V/pH at 25°C
+    DEFAULT_INTERCEPT = 0.0     # V at pH 7 (no offset)
+
+    # ── Proportional dosing constants ─────────────────────────────────────────
+    #
+    # STEPS_PER_ML: physical calibration constant.
+    #   Measure this for your pump + tubing combination:
+    #     1. Fill the tubing with liquid.
+    #     2. Run the pump for a known number of steps.
+    #     3. Collect the output in a graduated cylinder.
+    #     4. STEPS_PER_ML = steps_run / volume_collected_ml
+    #
+    # (Note: STEPS_PER_ML is now fetched dynamically from pp_config.json per-compartment)
+
+    # GAIN: how many steps to add per 0.1 pH unit of error.
+    #   Default: 50 steps / 1.0 pH unit = 5 steps per 0.1 pH.
+    #   Increase this to respond more aggressively to small errors.
+    GAIN_STEPS_PER_PH_UNIT: float = 50.0
+
+    # Minimum steps per dose — ensures the pump always moves enough to
+    # overcome tubing back-pressure even for tiny pH errors.
+    MIN_DOSE_STEPS: int = 10
+
+    # Step timing — must match the delay used in the pump hardware driver.
+    #   MockStepper / RealStepper both use 2 ms per step (0.002 s/step).
+    #   If you change the stepper delay in hardware/, update this constant too.
+    SEC_PER_STEP: float = 0.002  # seconds per step
+
+    def __init__(self, calibrations: dict = None):
+        """
+        Args:
+            calibrations: {compartment_id: {"slope": float, "intercept": float}}
+                          as returned by SQLiteClient.get_latest_calibrations()
+        """
+        self._calibrations = calibrations or {}
+        logger.info(f"PhController initialized with calibrations for compartments: {list(self._calibrations.keys())}")
+
+    def reload(self, calibrations: dict):
+        """Reload calibration constants (e.g. after a new calibration is saved)."""
+        self._calibrations = calibrations
+        logger.info(f"PhController calibrations reloaded for compartments: {list(self._calibrations.keys())}")
+
+    def voltage_to_ph(self, compartment_id: int, voltage: float) -> float:
+        """
+        Convert a raw voltage reading to a pH value.
+
+        Args:
+            compartment_id: The reactor compartment (1, 2, or 3).
+            voltage:        Raw voltage from the ADC in Volts.
+
+        Returns:
+            Calibrated pH value rounded to 2 decimal places.
+        """
+        calib = self._calibrations.get(compartment_id, {})
+        slope = calib.get("slope", self.DEFAULT_SLOPE)
+        intercept = calib.get("intercept", self.DEFAULT_INTERCEPT)
+
+        # Scale the 25°C slope to operating temperature (37°C)
+        live_slope = slope * (self.TEMP_K / self.REF_TEMP_K)
+
+        ph = 7.0 + ((intercept - voltage) / live_slope)
+        return round(ph, 2)
+
+    # ── Proportional dosing ───────────────────────────────────────────────────
+
+    def calculate_steps(self, ph_error: float, max_time_sec: float) -> int:
+        """
+        Calculate the number of stepper-motor steps proportional to the pH error,
+        capped so the resulting dose never exceeds max_time_sec.
+
+        max_steps is derived from the pump's own timing constant (SEC_PER_STEP)
+        so the calculated step count is always compatible with the TimeoutError
+        guard inside pump.dose().
+
+        Formula:
+            max_steps = floor(max_time_sec / SEC_PER_STEP)
+            raw_steps = GAIN_STEPS_PER_PH_UNIT * ph_error
+            steps     = clamp(raw_steps, MIN_DOSE_STEPS, max_steps)
+
+        Args:
+            ph_error:     target_min_ph - current_ph (positive when pH is too low)
+            max_time_sec: max_pump_time_sec from the experiment config
+
+        Returns:
+            Integer step count, always within [MIN_DOSE_STEPS, max_steps].
+        """
+        if ph_error <= 0:
+            return 0
+
+        max_steps = int(max_time_sec / self.SEC_PER_STEP)
+        raw_steps = self.GAIN_STEPS_PER_PH_UNIT * ph_error
+        steps = int(round(raw_steps))
+        steps = max(self.MIN_DOSE_STEPS, min(steps, max_steps))
+        logger.debug(
+            f"calculate_steps: error={ph_error:.3f} pH → raw={raw_steps:.1f} → "
+            f"clamped={steps} (min={self.MIN_DOSE_STEPS}, max={max_steps} "
+            f"[{max_time_sec}s / {self.SEC_PER_STEP}s per step])"
+        )
+        return steps
+</file>
+
+<file path="README.md">
+
+</file>
+
+<file path="requirements.txt">
+paho-mqtt>=2.0.0
+adafruit-circuitpython-ads1x15>=2.2.14
+python-dotenv==1.0.1
+# Note: lgpio usually requires system-level installation on Raspberry Pi (apt install python3-lgpio)
+# but we include a placeholder below for documentation purposes. 
+# It will fail on Windows, which is why hal.py catches the ImportError
+# lgpio>=0.2.2.0
+
+fastapi>=0.100.0
+uvicorn>=0.20.0
+pydantic>=2.0.0
+</file>
+
+</files>

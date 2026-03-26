@@ -37,7 +37,8 @@ export function PumpCalibrationWizard() {
     const isPrimingRef = useRef(false);
 
     const { client, publishCommand, isConnected, isServerOnline } = useMqtt();
-    const isOffline = !isConnected || isServerOnline === false;
+    const isOperational = isConnected && isServerOnline === true;
+    const isOffline = !isOperational;
 
     useEffect(() => {
         if (!client || isOffline) return;

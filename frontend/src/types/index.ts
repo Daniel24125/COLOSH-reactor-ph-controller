@@ -27,9 +27,9 @@ export type Telemetry = {
     id: string;
     experiment_id: string;
     timestamp: string;
-    compartment_1_ph: number;
-    compartment_2_ph: number;
-    compartment_3_ph: number;
+    compartment_1_ph: number | null;
+    compartment_2_ph: number | null;
+    compartment_3_ph: number | null;
 };
 
 export type ExperimentLog = {

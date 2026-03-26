@@ -9,11 +9,11 @@ import { useUser } from "@/context/UserContext";
 
 // --- ManualOverrideControl ---
 interface ManualOverrideControlProps {
-    isConnected: boolean;
+    isOperational: boolean;
     onManualDose: (pumpId: number) => void;
 }
 
-export const ManualOverrideControl = memo(function ManualOverrideControl({ isConnected, onManualDose }: ManualOverrideControlProps) {
+export const ManualOverrideControl = memo(function ManualOverrideControl({ isOperational, onManualDose }: ManualOverrideControlProps) {
     return (
         <div>
             <h2 className="text-lg font-medium text-neutral-200 mb-4">Manual Override</h2>
@@ -23,7 +23,7 @@ export const ManualOverrideControl = memo(function ManualOverrideControl({ isCon
                         <button
                             key={`pump-${id}`}
                             onClick={() => onManualDose(id)}
-                            disabled={!isConnected}
+                            disabled={!isOperational}
                             className="group relative overflow-hidden flex items-center justify-between p-4 rounded-xl bg-neutral-950 border border-neutral-800 hover:border-indigo-500/50 transition-all disabled:opacity-50 disabled:cursor-not-allowed disabled:hover:border-neutral-800"
                         >
                             <div className="flex flex-col items-start gap-1">
@@ -103,6 +103,7 @@ interface SetupExperimentModalProps {
     onSubmit: (e: React.FormEvent<HTMLFormElement>) => void;
     onToggleCreateProject: () => void;
     onSelectProject: (id: string) => void;
+    isOperational: boolean;
 }
 
 export function SetupExperimentModal({
@@ -114,6 +115,7 @@ export function SetupExperimentModal({
     onSubmit,
     onToggleCreateProject,
     onSelectProject,
+    isOperational,
 }: SetupExperimentModalProps) {
     const { user } = useUser();
 
@@ -201,7 +203,7 @@ export function SetupExperimentModal({
                         <button type="button" onClick={onClose} className="flex-1 px-4 py-2 text-neutral-400 bg-neutral-800 hover:bg-neutral-700/80 rounded-lg transition-colors border border-neutral-700/50">
                             Cancel
                         </button>
-                        <button type="submit" disabled={isSubmitting} className="flex-1 px-4 py-2 bg-indigo-600 hover:bg-indigo-500 disabled:opacity-50 text-white rounded-lg shadow-lg shadow-indigo-900/20 transition-all font-medium">
+                        <button type="submit" disabled={isSubmitting || !isOperational} title={!isOperational ? "System Offline" : ""} className="flex-1 px-4 py-2 bg-indigo-600 hover:bg-indigo-500 disabled:opacity-50 disabled:cursor-not-allowed text-white rounded-lg shadow-lg shadow-indigo-900/20 transition-all font-medium">
                             {isSubmitting ? "Starting..." : "Start Validation"}
                         </button>
                     </div>

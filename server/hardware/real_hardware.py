@@ -36,26 +36,44 @@ def get_gpio_chip():
 
 class RealADC:
     def __init__(self):
+        self.adc_connected = False
+        self.ads = None
         self.channels = {}
+        self.i2c = None
+        self._init_hardware()
+
+    def _init_hardware(self):
+        """Dedicated initialization method for self-healing/re-scan logic."""
         try:
+            # Re-initialize I2C bus and ADS1115
             self.i2c = busio.I2C(board.SCL, board.SDA)
             self.ads = ADS.ADS1115(self.i2c)
             from adafruit_ads1x15.ads1x15 import Pin
-            # Assuming compartment 1 -> A0, compartment 2 -> A1, compartment 3 -> A2
+            
+            # Re-map channels
             self.channels = {
                 1: AnalogIn(self.ads, Pin.A0),
                 2: AnalogIn(self.ads, Pin.A1),
                 3: AnalogIn(self.ads, Pin.A2)
             }
-            logger.info("RealADC initialized.")
+            self.adc_connected = True
+            logger.info("RealADC hardware initialized successfully.")
         except Exception as e:
-            logger.error(f"Failed to initialize RealADC: {e}")
-            
+            self.adc_connected = False
+            self.ads = None
+            self.channels = {}
+            logger.warning(f"Failed to initialize RealADC: {e}. System running in degraded mode.")
 
-    def read_voltage(self, compartment_id: int, max_retries: int = 4) -> float:
+    def read_voltage(self, compartment_id: int, max_retries: int = 4) -> float | None:
+        # 1. Self-healing check: if disconnected, try to re-init
+        if not self.adc_connected:
+            self._init_hardware()
+            if not self.adc_connected:
+                return None # Still offline
+                
         chan = self.channels.get(compartment_id)
         if not chan:
-            raise RuntimeError(f"ADC not initialized or invalid compartment ID: {compartment_id}")
+            return None
             
         last_err = None
         for attempt in range(max_retries):
@@ -64,11 +82,13 @@ class RealADC:
                 return round(chan.voltage, 4)
             except Exception as e:
                 last_err = e
-                # EREMOTEIO (121) is extremely common when stepper motor EMI disrupts I2C ACKs.
-                # Sleep briefly to let the electrical noise settle before retrying.
+                # Runtime disconnection or I2C noise
                 time.sleep(0.05)
                 
-        raise RuntimeError(f"Hardware error reading voltage after {max_retries} attempts: {last_err}")
+        # If all retries fail, it's likely a hardware disconnection
+        logger.error(f"Hardware error reading voltage: {last_err}. Setting ADC to offline.")
+        self.adc_connected = False
+        return None
 
 
 class RealPeristalticPump:

@@ -301,12 +301,17 @@ class ReactorController:
         for compartment_id in self.COMPARTMENTS:
             try:
                 voltage = await asyncio.to_thread(self.hw.adc.read_voltage, compartment_id)
-                ph_data[compartment_id] = self.ph_ctrl.voltage_to_ph(compartment_id, voltage)
-
+                
+                if voltage is not None:
+                    ph_data[compartment_id] = self.ph_ctrl.voltage_to_ph(compartment_id, voltage)
+                else:
+                    ph_data[compartment_id] = None # Reported as null in JSON
+                
                 if self.calibration_mode_compartment == compartment_id:
+                    # Calibration mode still expects raw voltage if available
                     self.mqtt.publish_raw_voltage({"raw_voltage": voltage})
                     
-                if self.sensor_error_logged[compartment_id]:
+                if self.sensor_error_logged[compartment_id] and voltage is not None:
                     logger.info(f"Sensor for compartment {compartment_id} recovered.")
                     await self._log_event("INFO", f"Sensor recovered.", compartment_id)
                     self.sensor_error_logged[compartment_id] = False

@@ -60,6 +60,7 @@ interface BufferSolutionCardProps {
     lockedVoltage: number | null;
     rawVoltage: number | null;
     isFirstLocked?: boolean;
+    isOperational: boolean;
     onPhChange: (value: number) => void;
     onLock: () => void;
     onUnlock: () => void;
@@ -71,11 +72,12 @@ export function BufferSolutionCard({
     lockedVoltage,
     rawVoltage,
     isFirstLocked,
+    isOperational,
     onPhChange,
     onLock,
     onUnlock,
 }: BufferSolutionCardProps) {
-    const isDisabled = bufferNumber === 2 ? (rawVoltage === null || !isFirstLocked) : rawVoltage === null;
+    const isDisabled = !isOperational || (bufferNumber === 2 ? (rawVoltage === null || !isFirstLocked) : rawVoltage === null);
 
     return (
         <div className="bg-neutral-900 border border-neutral-800 rounded-2xl p-6 relative overflow-hidden group">
@@ -113,7 +115,8 @@ export function BufferSolutionCard({
                 <button
                     onClick={onLock}
                     disabled={isDisabled}
-                    className="w-full py-2 bg-neutral-800 hover:bg-neutral-700 text-neutral-200 rounded-lg transition-colors border border-neutral-700 disabled:opacity-50 text-sm font-medium flex items-center justify-center gap-2"
+                    title={!isOperational ? "System Offline" : ""}
+                    className="w-full py-2 bg-neutral-800 hover:bg-neutral-700 text-neutral-200 rounded-lg transition-colors border border-neutral-700 disabled:opacity-50 disabled:cursor-not-allowed text-sm font-medium flex items-center justify-center gap-2"
                 >
                     <Lock className="w-4 h-4" /> Lock Stabilization Voltage
                 </button>
@@ -137,10 +140,11 @@ interface CalibrationSummaryProps {
     ph2: number;
     activeCompartment: number;
     isSaving: boolean;
+    isOperational: boolean;
     onSave: () => void;
 }
 
-export function CalibrationSummary({ v1, v2, ph1, ph2, activeCompartment, isSaving, onSave }: CalibrationSummaryProps) {
+export function CalibrationSummary({ v1, v2, ph1, ph2, activeCompartment, isSaving, isOperational, onSave }: CalibrationSummaryProps) {
     const slope = (v2 - v1) / (ph2 - ph1);
     const intercept = v1 - (slope * (ph1 - 7.0));
 
@@ -158,11 +162,11 @@ export function CalibrationSummary({ v1, v2, ph1, ph2, activeCompartment, isSavi
             </div>
             <button
                 onClick={onSave}
-                disabled={isSaving}
-                className="w-full py-3 bg-indigo-600 hover:bg-indigo-500 text-white rounded-lg shadow-lg shadow-indigo-900/20 transition-all font-medium flex items-center justify-center gap-2 disabled:opacity-50"
+                disabled={isSaving || !isOperational}
+                className="w-full py-3 bg-indigo-600 hover:bg-indigo-500 text-white rounded-lg shadow-lg shadow-indigo-900/20 transition-all font-medium flex items-center justify-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed disabled:hover:bg-indigo-600"
             >
                 <Save className="w-5 h-5" />
-                {isSaving ? "Saving..." : `Apply Calibration to Compartment ${activeCompartment}`}
+                {isSaving ? "Saving..." : !isOperational ? "System Offline" : `Apply Calibration to Compartment ${activeCompartment}`}
             </button>
         </div>
     );

@@ -6,7 +6,7 @@ import { toast } from "sonner";
 
 const BROKER_URL = process.env.NEXT_PUBLIC_MQTT_URL || "ws://localhost:9001";
 
-type PhData = { 1?: number; 2?: number; 3?: number };
+type PhData = { 1?: number | null; 2?: number | null; 3?: number | null };
 type Status = { health?: string; active_experiment?: string | null; db_connected?: boolean };
 type LogEvent = { id: string; level: string; message: string; timestamp: string; compartment: number | null };
 
