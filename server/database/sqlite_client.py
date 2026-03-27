@@ -70,19 +70,29 @@ class SQLiteClient:
                     CREATE TABLE IF NOT EXISTS calibrations (
                         id INTEGER PRIMARY KEY AUTOINCREMENT,
                         compartment INTEGER,
-                        slope REAL,
-                        intercept REAL,
+                        point1_ph REAL,
+                        point1_raw INTEGER,
+                        point2_ph REAL,
+                        point2_raw INTEGER,
                         researcher TEXT,
                         calibrated_at DATETIME DEFAULT CURRENT_TIMESTAMP
                     )
                 ''')
                 cursor.execute('CREATE INDEX IF NOT EXISTS idx_telemetry_experiment_time ON telemetry(experiment_id, timestamp);')
-                
-                # Migration for existing calibrations table
-                try:
-                    cursor.execute('ALTER TABLE calibrations ADD COLUMN researcher TEXT;')
-                except sqlite3.OperationalError:
-                    pass # Column already exists
+
+                # ── Schema migrations (safe: no-op if column already exists) ──
+                migration_cols = [
+                    'ALTER TABLE calibrations ADD COLUMN researcher TEXT',
+                    'ALTER TABLE calibrations ADD COLUMN point1_ph REAL',
+                    'ALTER TABLE calibrations ADD COLUMN point1_raw INTEGER',
+                    'ALTER TABLE calibrations ADD COLUMN point2_ph REAL',
+                    'ALTER TABLE calibrations ADD COLUMN point2_raw INTEGER',
+                ]
+                for stmt in migration_cols:
+                    try:
+                        cursor.execute(stmt)
+                    except sqlite3.OperationalError:
+                        pass  # Column already exists — skip
                     
                 conn.commit()
                 logger.info("SQLite Database initialized with WAL and telemetry tracking.")
@@ -90,18 +100,35 @@ class SQLiteClient:
             logger.error(f"Error initializing SQLite DB: {e}")
 
     def get_latest_calibrations(self):
+        """
+        Return the most recent two-point raw calibration for each compartment.
+
+        Returns:
+            {
+                compartment_id: {
+                    "point1_ph": float, "point1_raw": int,
+                    "point2_ph": float, "point2_raw": int
+                }
+            }
+        Only compartments with a complete calibration record are included.
+        """
         try:
             with sqlite3.connect(self.db_path) as conn:
                 conn.execute('PRAGMA journal_mode=WAL;')
                 conn.row_factory = sqlite3.Row
                 cursor = conn.cursor()
-                
+
                 calibrations = {}
                 for comp in [1, 2, 3]:
                     cursor.execute('''
-                        SELECT slope, intercept FROM calibrations 
-                        WHERE compartment = ? 
-                        ORDER BY calibrated_at DESC 
+                        SELECT point1_ph, point1_raw, point2_ph, point2_raw
+                        FROM calibrations
+                        WHERE compartment = ?
+                          AND point1_ph IS NOT NULL
+                          AND point1_raw IS NOT NULL
+                          AND point2_ph IS NOT NULL
+                          AND point2_raw IS NOT NULL
+                        ORDER BY calibrated_at DESC
                         LIMIT 1
                     ''', (comp,))
                     row = cursor.fetchone()

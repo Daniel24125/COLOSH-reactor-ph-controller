@@ -1,4 +1,5 @@
 import asyncio
+import collections
 import logging
 import time
 import os
@@ -26,6 +27,17 @@ class ReactorController:
     DEFAULT_DOSE_STEPS = 500
     DEFAULT_MAX_PUMP_SEC = 30
     DEFAULT_COOLDOWN_SEC = 10
+
+    # ── Reading Stability ──────────────────────────────────────────────────
+    # Number of consecutive raw ADC readings held in the sliding window.
+    STABILITY_WINDOW_SIZE = 10
+
+    # A reading is considered stable when the spread of the window
+    # (max − min in raw ADC steps) is below this threshold.
+    # Tune this value based on your electrode / I2C noise floor.
+    # At 16-bit full-scale (≈32 767 steps) a threshold of 100 corresponds
+    # to roughly 0.3 mV of input noise on a ±2.048 V range.
+    STABILITY_THRESHOLD = 100
 
     def __init__(self):
         # 1. Hardware Abstraction Layer
@@ -57,6 +69,12 @@ class ReactorController:
         self.last_measurement_time = 0.0
         self.sensor_error_logged = {c: False for c in self.COMPARTMENTS}
         self.active_dosing_tasks = {c: None for c in self.COMPARTMENTS}
+
+        # 5. Stability sliding windows — one deque per compartment
+        self.raw_windows: dict[int, collections.deque] = {
+            c: collections.deque(maxlen=self.STABILITY_WINDOW_SIZE)
+            for c in self.COMPARTMENTS
+        }
 
     # ── Event helpers ──────────────────────────────────────────────────────
 
@@ -141,11 +159,11 @@ class ReactorController:
     async def handle_pump_prime(self, payload: dict):
         location = payload.get("location")
         state = payload.get("state")  # "ON" or "OFF"
-        
+
         logger.info(f"Pump Prime {state}: {location}")
         pump = self._get_calibration_pump(location)
         if not pump: return
-        
+
         if state == "ON":
             try:
                 pump.start_prime()
@@ -161,7 +179,7 @@ class ReactorController:
 
     async def handle_pump_calibrate_run(self, payload: dict):
         location = payload.get("location")
-        
+
         # Accept either explicit steps (legacy) or target_volume which we convert
         # to steps using the current calibration so the dispense is volumetrically consistent.
         if "target_volume" in payload:
@@ -175,7 +193,7 @@ class ReactorController:
                 return
         else:
             steps = int(payload.get("steps", 10000))
-        
+
         logger.info(f"Pump Calibrate Run: {location} for {steps} steps")
         pump = self._get_calibration_pump(location)
         if not pump: return
@@ -192,7 +210,7 @@ class ReactorController:
         location = payload.get("location")
         target_ml = payload.get("target_ml")
         actual_ml = payload.get("actual_ml")
-        
+
         if not actual_ml or float(actual_ml) <= 0:
             logger.error("Invalid actual_ml received for calibration save.")
             return
@@ -246,22 +264,19 @@ class ReactorController:
         max_time = self.active_experiment.get("max_pump_time_sec", self.DEFAULT_MAX_PUMP_SEC)
 
         # Proportional dosing: steps scale with the magnitude of the pH error.
-        # calculate_steps derives max_steps from max_time using the pump's own
-        # SEC_PER_STEP constant — so we can never exceed the TimeoutError guard
-        # inside pump.dose().
         ph_error = target_min - current_ph
         steps = self.ph_ctrl.calculate_steps(ph_error, max_time)
-        
+
         # Load the dynamic calibration config for true volume calculation
         try:
             config = self.pump_config_manager.get_pump_config(f"location_{compartment_id}")
             spm = float(config.get("steps_per_ml", 1000.0))
         except Exception:
             spm = 1000.0
-            
-        if spm <= 0: 
+
+        if spm <= 0:
             spm = 1000.0
-            
+
         volume_ml = round(steps / spm, 3)
 
         # Do not allow overlapping auto-doses for the same compartment
@@ -296,54 +311,86 @@ class ReactorController:
     # ── Run-loop helpers ───────────────────────────────────────────────────
 
     async def _read_sensors(self) -> dict:
-        """Read voltage from all compartments, convert to pH, and stream calibration data."""
-        ph_data = {}
+        """
+        Read raw ADC values from all compartments, apply stability windowing,
+        convert to pH, and return a composite telemetry dict.
+
+        Returns:
+            {
+                compartment_id: {"ph": float | None, "raw": int | None, "stable": bool}
+            }
+        """
+        sensor_data = {}
         for compartment_id in self.COMPARTMENTS:
             try:
-                voltage = await asyncio.to_thread(self.hw.adc.read_voltage, compartment_id)
-                
-                if voltage is not None:
-                    ph_data[compartment_id] = self.ph_ctrl.voltage_to_ph(compartment_id, voltage)
+                raw = await asyncio.to_thread(self.hw.adc.read_raw_value, compartment_id)
+
+                if raw is not None:
+                    # Update the sliding window with the new raw reading
+                    window = self.raw_windows[compartment_id]
+                    window.append(raw)
+
+                    # Stability: spread < STABILITY_THRESHOLD over at least 2 readings
+                    is_stable = (
+                        len(window) >= 2
+                        and (max(window) - min(window)) < self.STABILITY_THRESHOLD
+                    )
+
+                    ph_val = self.ph_ctrl.raw_to_ph(compartment_id, raw)
+                    sensor_data[compartment_id] = {
+                        "ph": ph_val,
+                        "raw": raw,
+                        "stable": is_stable,
+                    }
                 else:
-                    ph_data[compartment_id] = None # Reported as null in JSON
-                
+                    # Sensor offline — clear stability window so stale data is not used
+                    self.raw_windows[compartment_id].clear()
+                    sensor_data[compartment_id] = {"ph": None, "raw": None, "stable": False}
+
+                # In calibration mode, stream the latest raw value to the frontend
                 if self.calibration_mode_compartment == compartment_id:
-                    # Calibration mode still expects raw voltage if available
-                    self.mqtt.publish_raw_voltage({"raw_voltage": voltage})
-                    
-                if self.sensor_error_logged[compartment_id] and voltage is not None:
+                    self.mqtt.publish_raw_value({"raw_value": raw})
+
+                if self.sensor_error_logged[compartment_id] and raw is not None:
                     logger.info(f"Sensor for compartment {compartment_id} recovered.")
-                    await self._log_event("INFO", f"Sensor recovered.", compartment_id)
+                    await self._log_event("INFO", "Sensor recovered.", compartment_id)
                     self.sensor_error_logged[compartment_id] = False
+
             except Exception as exc:
                 if not self.sensor_error_logged[compartment_id]:
                     logger.error(f"Error reading sensor for compartment {compartment_id}: {exc}")
                     await self._log_event("ERROR", f"Failed to read sensor: {exc}", compartment_id)
                     self.sensor_error_logged[compartment_id] = True
-        return ph_data
+                sensor_data[compartment_id] = {"ph": None, "raw": None, "stable": False}
 
-    async def _run_dosing(self, ph_data: dict):
+        return sensor_data
+
+    async def _run_dosing(self, sensor_data: dict):
         """Run auto-dosing logic for every compartment based on the latest pH readings."""
-        for compartment_id, ph_val in ph_data.items():
-            await self._dose_if_needed(compartment_id, ph_val)
+        for compartment_id, reading in sensor_data.items():
+            ph_val = reading.get("ph")
+            if ph_val is not None:
+                await self._dose_if_needed(compartment_id, ph_val)
 
-    async def _log_telemetry(self, ph_data: dict):
+    async def _log_telemetry(self, sensor_data: dict):
         """Persist a telemetry snapshot to SQLite when the logging interval has elapsed."""
         if not self.active_experiment:
             return
         interval_mins = self.active_experiment.get("measurement_interval_mins", 1)
         if time.time() - self.last_measurement_time >= interval_mins * 60:
+            # Extract only the pH float for DB persistence (raw & stable are transient)
+            ph_only = {c: v.get("ph") for c, v in sensor_data.items()}
             await asyncio.to_thread(
                 self.sqlite.log_telemetry,
                 self.active_experiment["id"],
-                ph_data
+                ph_only
             )
-            self.mqtt.publish_logged_telemetry(ph_data)
+            self.mqtt.publish_logged_telemetry(ph_only)
             self.last_measurement_time = time.time()
 
-    def _publish(self, ph_data: dict):
+    def _publish(self, sensor_data: dict):
         """Publish real-time telemetry and system status via MQTT."""
-        self.mqtt.publish_telemetry(ph_data)
+        self.mqtt.publish_telemetry(sensor_data)
         self.mqtt.publish_status({
             "health": "ok",
             "active_experiment": self.active_experiment["id"] if self.active_experiment else None,
@@ -386,10 +433,10 @@ class ReactorController:
 
                 loop_last_experiment_id = current_exp_id
 
-                ph_data = await self._read_sensors()
-                await self._run_dosing(ph_data)
-                await self._log_telemetry(ph_data)
-                self._publish(ph_data)
+                sensor_data = await self._read_sensors()
+                await self._run_dosing(sensor_data)
+                await self._log_telemetry(sensor_data)
+                self._publish(sensor_data)
 
                 await asyncio.sleep(self.CYCLE_INTERVAL_SEC)
             except Exception as exc:

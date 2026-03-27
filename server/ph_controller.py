@@ -5,12 +5,17 @@ logger = logging.getLogger(__name__)
 
 class PhController:
     """
-    Converts raw ADC voltage to a calibrated pH value using the
-    temperature-compensated Nernst equation at 37°C (standard reactor temp).
+    Converts raw ADS1115 ADC integer readings to a calibrated pH value using
+    an empirical two-point linear calibration.
 
     Formula:
-        live_slope = calibrated_slope * (TEMP_K / REF_TEMP_K)
-        pH = 7.0 + (intercept - voltage) / live_slope
+        m = (point2_ph - point1_ph) / (point2_raw - point1_raw)
+        b = point1_ph - m * point1_raw
+        pH = m * raw_value + b
+
+    The two calibration points (point1_ph / point1_raw, point2_ph / point2_raw)
+    are stored in the database and loaded at startup via SQLiteClient.get_latest_calibrations().
+    m and b are computed dynamically from those points — no constants are baked in.
 
     Also provides proportional dosing calculations: the volume (and equivalent
     stepper steps) of base to inject grows proportionally with the pH error,
@@ -18,26 +23,14 @@ class PhController:
     stronger dose — up to the experiment's configured maximum.
     """
 
-    TEMP_K = 310.15     # Operating temperature: 37°C in Kelvin
-    REF_TEMP_K = 298.15 # Reference temperature: 25°C in Kelvin
-
-    # Ideal Nernstian defaults — used when no calibration exists for a compartment
-    DEFAULT_SLOPE = -0.05916    # V/pH at 25°C
-    DEFAULT_INTERCEPT = 0.0     # V at pH 7 (no offset)
+    # ── Calibration fallback ───────────────────────────────────────────────────
+    # Returned when no calibration record exists for a compartment.
+    DEFAULT_FALLBACK_PH: float = 7.0
 
     # ── Proportional dosing constants ─────────────────────────────────────────
     #
-    # STEPS_PER_ML: physical calibration constant.
-    #   Measure this for your pump + tubing combination:
-    #     1. Fill the tubing with liquid.
-    #     2. Run the pump for a known number of steps.
-    #     3. Collect the output in a graduated cylinder.
-    #     4. STEPS_PER_ML = steps_run / volume_collected_ml
-    #
-    # (Note: STEPS_PER_ML is now fetched dynamically from pp_config.json per-compartment)
-
-    # GAIN: how many steps to add per 0.1 pH unit of error.
-    #   Default: 50 steps / 1.0 pH unit = 5 steps per 0.1 pH.
+    # GAIN: how many steps to add per 1.0 pH unit of error.
+    #   Default: 50 steps / 1.0 pH unit.
     #   Increase this to respond more aggressively to small errors.
     GAIN_STEPS_PER_PH_UNIT: float = 50.0
 
@@ -53,8 +46,13 @@ class PhController:
     def __init__(self, calibrations: dict = None):
         """
         Args:
-            calibrations: {compartment_id: {"slope": float, "intercept": float}}
-                          as returned by SQLiteClient.get_latest_calibrations()
+            calibrations: {
+                compartment_id: {
+                    "point1_ph": float, "point1_raw": int,
+                    "point2_ph": float, "point2_raw": int
+                }
+            }
+            as returned by SQLiteClient.get_latest_calibrations()
         """
         self._calibrations = calibrations or {}
         logger.info(f"PhController initialized with calibrations for compartments: {list(self._calibrations.keys())}")
@@ -64,25 +62,53 @@ class PhController:
         self._calibrations = calibrations
         logger.info(f"PhController calibrations reloaded for compartments: {list(self._calibrations.keys())}")
 
-    def voltage_to_ph(self, compartment_id: int, voltage: float) -> float:
+    def raw_to_ph(self, compartment_id: int, raw_value: int) -> float:
         """
-        Convert a raw voltage reading to a pH value.
+        Convert a raw 16-bit ADC integer reading to a pH value using the
+        empirical two-point linear calibration stored for this compartment.
 
         Args:
             compartment_id: The reactor compartment (1, 2, or 3).
-            voltage:        Raw voltage from the ADC in Volts.
+            raw_value:      Raw 16-bit integer from the ADS1115 ADC (chan.value).
 
         Returns:
-            Calibrated pH value rounded to 2 decimal places.
+            Calibrated pH value rounded to 2 decimal places, or DEFAULT_FALLBACK_PH
+            if no valid calibration exists for this compartment.
         """
-        calib = self._calibrations.get(compartment_id, {})
-        slope = calib.get("slope", self.DEFAULT_SLOPE)
-        intercept = calib.get("intercept", self.DEFAULT_INTERCEPT)
+        calib = self._calibrations.get(compartment_id)
 
-        # Scale the 25°C slope to operating temperature (37°C)
-        live_slope = slope * (self.TEMP_K / self.REF_TEMP_K)
+        if not calib:
+            logger.debug(
+                f"No calibration for compartment {compartment_id}. "
+                f"Returning fallback pH {self.DEFAULT_FALLBACK_PH}."
+            )
+            return self.DEFAULT_FALLBACK_PH
 
-        ph = 7.0 + ((intercept - voltage) / live_slope)
+        p1_ph  = calib.get("point1_ph")
+        p1_raw = calib.get("point1_raw")
+        p2_ph  = calib.get("point2_ph")
+        p2_raw = calib.get("point2_raw")
+
+        # Validate all four points are present and the raw values differ
+        if None in (p1_ph, p1_raw, p2_ph, p2_raw):
+            logger.warning(
+                f"Incomplete calibration data for compartment {compartment_id}. "
+                f"Returning fallback pH {self.DEFAULT_FALLBACK_PH}."
+            )
+            return self.DEFAULT_FALLBACK_PH
+
+        if p2_raw == p1_raw:
+            logger.warning(
+                f"Degenerate calibration for compartment {compartment_id}: "
+                f"point1_raw == point2_raw ({p1_raw}). Returning fallback pH."
+            )
+            return self.DEFAULT_FALLBACK_PH
+
+        # Two-point linear interpolation: pH = m·raw + b
+        m = (p2_ph - p1_ph) / (p2_raw - p1_raw)
+        b = p1_ph - m * p1_raw
+        ph = m * raw_value + b
+
         return round(ph, 2)
 
     # ── Proportional dosing ───────────────────────────────────────────────────
@@ -121,4 +147,3 @@ class PhController:
             f"[{max_time_sec}s / {self.SEC_PER_STEP}s per step])"
         )
         return steps
-

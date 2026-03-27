@@ -16,8 +16,8 @@ export function CalibrationHistoryTable({ history }: CalibrationHistoryTableProp
                         <tr>
                             <th className="px-6 py-3">Date</th>
                             <th className="px-6 py-3">Compartment</th>
-                            <th className="px-6 py-3">Slope (V/pH)</th>
-                            <th className="px-6 py-3">Intercept (V)</th>
+                            <th className="px-6 py-3">Point 1 (pH / raw)</th>
+                            <th className="px-6 py-3">Point 2 (pH / raw)</th>
                             <th className="px-6 py-3">Researcher</th>
                         </tr>
                     </thead>
@@ -39,8 +39,16 @@ export function CalibrationHistoryTable({ history }: CalibrationHistoryTableProp
                                             {record.compartment}
                                         </span>
                                     </td>
-                                    <td className="px-6 py-4 font-mono">{record.slope.toFixed(4)}</td>
-                                    <td className="px-6 py-4 font-mono">{record.intercept.toFixed(4)}</td>
+                                    <td className="px-6 py-4 font-mono">
+                                        <span className="text-indigo-400">{record.point1_ph.toFixed(2)}</span>
+                                        <span className="text-neutral-600 mx-1">/</span>
+                                        <span>{record.point1_raw.toLocaleString()}</span>
+                                    </td>
+                                    <td className="px-6 py-4 font-mono">
+                                        <span className="text-indigo-400">{record.point2_ph.toFixed(2)}</span>
+                                        <span className="text-neutral-600 mx-1">/</span>
+                                        <span>{record.point2_raw.toLocaleString()}</span>
+                                    </td>
                                     <td className="px-6 py-4">{record.researcher || "Unknown"}</td>
                                 </tr>
                             ))

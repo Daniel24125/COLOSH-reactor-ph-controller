@@ -184,12 +184,12 @@ class MQTTClient:
         except Exception as e:
             logger.error(f"Failed to publish status: {e}")
 
-    def publish_raw_voltage(self, voltage_data: dict):
-        """Publish raw voltage for calibration."""
+    def publish_raw_value(self, raw_data: dict):
+        """Publish raw ADC integer for calibration (key: raw_value)."""
         try:
-            self.client.publish("reactor/calibration/raw", json.dumps(voltage_data))
+            self.client.publish("reactor/calibration/raw", json.dumps(raw_data))
         except Exception as e:
-            logger.error(f"Failed to publish raw voltage: {e}")
+            logger.error(f"Failed to publish raw ADC value: {e}")
 
     def publish_event(self, level: str, message: str, compartment: int = None):
         """Publish event logs."""

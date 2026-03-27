@@ -49,7 +49,7 @@ class RealADC:
             self.i2c = busio.I2C(board.SCL, board.SDA)
             self.ads = ADS.ADS1115(self.i2c)
             from adafruit_ads1x15.ads1x15 import Pin
-            
+
             # Re-map channels
             self.channels = {
                 1: AnalogIn(self.ads, Pin.A0),
@@ -64,29 +64,36 @@ class RealADC:
             self.channels = {}
             logger.warning(f"Failed to initialize RealADC: {e}. System running in degraded mode.")
 
-    def read_voltage(self, compartment_id: int, max_retries: int = 4) -> float | None:
+    def read_raw_value(self, compartment_id: int, max_retries: int = 4) -> int | None:
+        """
+        Read the raw 16-bit integer value from the ADS1115 ADC for the given
+        compartment channel.  Returns None when the sensor is offline.
+
+        The raw value (chan.value) is the signed 16-bit integer produced by the
+        ADS1115 before any voltage conversion is applied — the basis for the
+        empirical two-point linear pH calibration.
+        """
         # 1. Self-healing check: if disconnected, try to re-init
         if not self.adc_connected:
             self._init_hardware()
             if not self.adc_connected:
-                return None # Still offline
-                
+                return None  # Still offline
+
         chan = self.channels.get(compartment_id)
         if not chan:
             return None
-            
+
         last_err = None
         for attempt in range(max_retries):
             try:
-                # Get raw voltage
-                return round(chan.voltage, 4)
+                return chan.value  # Raw 16-bit integer from the ADC
             except Exception as e:
                 last_err = e
-                # Runtime disconnection or I2C noise
+                # Runtime disconnection or I2C noise — brief pause before retry
                 time.sleep(0.05)
-                
+
         # If all retries fail, it's likely a hardware disconnection
-        logger.error(f"Hardware error reading voltage: {last_err}. Setting ADC to offline.")
+        logger.error(f"Hardware error reading raw ADC value: {last_err}. Setting ADC to offline.")
         self.adc_connected = False
         return None
 
@@ -99,12 +106,12 @@ class RealPeristalticPump:
         self.en_pin = en_pin
         self.steps_per_ml = steps_per_ml
         self.h_gpio = None
-        
+
         # Threading support for continuous priming
         self._prime_thread = None
         self._stop_prime_event = threading.Event()
         self._stop_dose_event = threading.Event()
-        
+
         try:
             self.h_gpio = get_gpio_chip()
             lgpio.gpio_claim_output(self.h_gpio, self.dir_pin)
@@ -118,14 +125,14 @@ class RealPeristalticPump:
 
     def set_enable(self, state: bool):
         if self.h_gpio is None: return
-        val = 0 if state else 1 # Low = Enabled
+        val = 0 if state else 1  # Low = Enabled
         lgpio.gpio_write(self.h_gpio, self.en_pin, val)
 
     def run_calibration(self, total_steps: int = 10000, safe_delay: float = 0.002):
         logger.info(f"Running real calibration for {total_steps} steps...")
         if self.h_gpio is None: return
         try:
-            lgpio.gpio_write(self.h_gpio, self.en_pin, 0) # Enable
+            lgpio.gpio_write(self.h_gpio, self.en_pin, 0)  # Enable
             time.sleep(0.1)
             for _ in range(total_steps):
                 lgpio.gpio_write(self.h_gpio, self.step_pin, 1)
@@ -133,7 +140,7 @@ class RealPeristalticPump:
                 lgpio.gpio_write(self.h_gpio, self.step_pin, 0)
                 time.sleep(safe_delay)
         finally:
-            lgpio.gpio_write(self.h_gpio, self.en_pin, 1) # Disable
+            lgpio.gpio_write(self.h_gpio, self.en_pin, 1)  # Disable
 
     def stop_dose(self):
         """Signals an ongoing dose operation to stop early."""
@@ -148,7 +155,7 @@ class RealPeristalticPump:
             lgpio.gpio_write(self.h_gpio, self.dir_pin, dir_val)
             lgpio.gpio_write(self.h_gpio, self.en_pin, 0)
             time.sleep(0.05)
-            
+
             delay = 0.001
             for _ in range(steps):
                 if self._stop_dose_event.is_set():
@@ -164,7 +171,7 @@ class RealPeristalticPump:
     def start_prime(self, direction: str = "forward"):
         """Starts a continuous background loop of step pulses."""
         if self._prime_thread and self._prime_thread.is_alive():
-            return # Already running
+            return  # Already running
 
         self._stop_prime_event.clear()
         # Daemon thread ensures it dies if the main program crashes
@@ -180,12 +187,12 @@ class RealPeristalticPump:
     def _prime_loop(self, direction: str):
         """The actual continuous pulsing logic (runs in the background)."""
         if self.h_gpio is None: return
-        
+
         dir_val = 1 if direction in (1, "forward") else 0
         lgpio.gpio_write(self.h_gpio, self.dir_pin, dir_val)
-        lgpio.gpio_write(self.h_gpio, self.en_pin, 0) # Enable driver (Active LOW)
-        
-        delay = 0.001 # 1ms delay for safe speed
+        lgpio.gpio_write(self.h_gpio, self.en_pin, 0)  # Enable driver (Active LOW)
+
+        delay = 0.001  # 1ms delay for safe speed
         try:
             while not self._stop_prime_event.is_set():
                 lgpio.gpio_write(self.h_gpio, self.step_pin, 1)
@@ -197,4 +204,3 @@ class RealPeristalticPump:
             try:
                 lgpio.gpio_write(self.h_gpio, self.en_pin, 1)
             except: pass
-

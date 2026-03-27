@@ -40,3 +40,28 @@ export type ExperimentLog = {
     message: string;
     compartment: number | null;
 };
+
+/**
+ * A single compartment's real-time reading as published by the backend on
+ * the reactor/telemetry/ph MQTT topic.
+ *
+ * - ph:     Calibrated pH value (null when the sensor is offline).
+ * - raw:    Raw 16-bit ADS1115 integer (null when the sensor is offline).
+ * - stable: True when the last STABILITY_WINDOW_SIZE raw readings spread
+ *           is below STABILITY_THRESHOLD ADC steps.
+ */
+export type CompartmentReading = {
+    ph: number | null;
+    raw: number | null;
+    stable: boolean;
+};
+
+/**
+ * Full real-time telemetry payload shape — maps compartment ID (1, 2, 3)
+ * to its latest reading.
+ */
+export type PhData = {
+    1?: CompartmentReading;
+    2?: CompartmentReading;
+    3?: CompartmentReading;
+};

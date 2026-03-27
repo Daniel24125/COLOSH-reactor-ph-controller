@@ -3,19 +3,22 @@
 import { createContext, useContext, useState, useEffect, useRef, ReactNode } from "react";
 import mqtt from "mqtt";
 import { toast } from "sonner";
+import type { PhData } from "@/types";
 
 const BROKER_URL = process.env.NEXT_PUBLIC_MQTT_URL || "ws://localhost:9001";
 
-type PhData = { 1?: number | null; 2?: number | null; 3?: number | null };
 type Status = { health?: string; active_experiment?: string | null; db_connected?: boolean };
 type LogEvent = { id: string; level: string; message: string; timestamp: string; compartment: number | null };
+
+// Logged telemetry is the DB-aligned snapshot — pH values only (no raw / stable)
+type LoggedPhData = { 1?: number | null; 2?: number | null; 3?: number | null };
 
 interface MqttContextValue {
     client: mqtt.MqttClient | null;
     isConnected: boolean;
     isServerOnline: boolean | null;
     phData: PhData;
-    loggedTelemetry: PhData;
+    loggedTelemetry: LoggedPhData;
     status: Status;
     setStatus: React.Dispatch<React.SetStateAction<Status>>;
     eventLogs: LogEvent[];
@@ -29,7 +32,7 @@ const MqttContext = createContext<MqttContextValue | null>(null);
 export function MqttProvider({ children }: { children: ReactNode }) {
     const [client, setClient] = useState<mqtt.MqttClient | null>(null);
     const [phData, setPhData] = useState<PhData>({});
-    const [loggedTelemetry, setLoggedTelemetry] = useState<PhData>({});
+    const [loggedTelemetry, setLoggedTelemetry] = useState<LoggedPhData>({});
     const [status, setStatus] = useState<Status>({});
     const [eventLogs, setEventLogs] = useState<LogEvent[]>([]);
     const [isConnected, setIsConnected] = useState(false);
@@ -53,7 +56,15 @@ export function MqttProvider({ children }: { children: ReactNode }) {
             try {
                 const payload = JSON.parse(message.toString());
                 if (topic === "reactor/telemetry/ph") {
-                    setPhData(payload);
+                    // Payload shape: { "1": { ph, raw, stable }, "2": {...}, "3": {...} }
+                    // JSON keys are strings — remap to numeric keys to match PhData type.
+                    const typed: PhData = {};
+                    for (const key of ["1", "2", "3"] as const) {
+                        if (payload[key] !== undefined) {
+                            typed[Number(key) as 1 | 2 | 3] = payload[key];
+                        }
+                    }
+                    setPhData(typed);
                 } else if (topic === "reactor/telemetry/logged") {
                     setLoggedTelemetry(payload);
                 } else if (topic === "reactor/status") {

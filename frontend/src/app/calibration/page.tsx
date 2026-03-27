@@ -31,7 +31,7 @@ type CalibrationTab = "ph" | "pump";
 function CalibrationWizardContent() {
     const router = useRouter();
     const searchParams = useSearchParams();
-    const { publishCommand, isConnected, isServerOnline } = useMqtt();
+    const { publishCommand, isConnected, isServerOnline, phData } = useMqtt();
     const isOperational = isConnected && isServerOnline === true;
     const { user } = useUser();
 
@@ -40,24 +40,32 @@ function CalibrationWizardContent() {
     const [activeTab, setActiveTab] = useState<CalibrationTab>(tabParam === "pump" ? "pump" : "ph");
 
     const [activeCompartment, setActiveCompartment] = useState<number>(1);
-    const [rawVoltage, setRawVoltage] = useState<number | null>(null);
+
+    // Raw ADC integer streamed from the dedicated calibration MQTT topic
+    const [rawValue, setRawValue] = useState<number | null>(null);
+
     const [isCheckingActive, setIsCheckingActive] = useState(true);
 
+    // Two calibration points — stored as (pH, raw) pairs
     const [ph1, setPh1] = useState<number>(7.0);
-    const [v1, setV1] = useState<number | null>(null);
+    const [raw1, setRaw1] = useState<number | null>(null);
 
     const [ph2, setPh2] = useState<number>(4.0);
-    const [v2, setV2] = useState<number | null>(null);
+    const [raw2, setRaw2] = useState<number | null>(null);
 
     const [isSaving, setIsSaving] = useState(false);
     const [history, setHistory] = useState<CalibrationRecord[]>([]);
+
+    const mqttClientRef = useRef<mqtt.MqttClient | null>(null);
+
+    // Derive stability from the global phData context.
+    // The backend is the single source of truth for the stable flag.
+    const isStable = phData[activeCompartment as 1 | 2 | 3]?.stable ?? false;
 
     const fetchHistory = async () => {
         const records = await getCalibrationHistory();
         setHistory(records);
     };
-
-    const mqttClientRef = useRef<mqtt.MqttClient | null>(null);
 
     useEffect(() => {
         getActiveExperiment().then(exp => {
@@ -72,7 +80,9 @@ function CalibrationWizardContent() {
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [router]);
 
-    // Only connect MQTT for raw voltage if we are on the pH tab
+    // Open a dedicated MQTT connection for the raw ADC stream when on the pH tab.
+    // This is separate from the global context connection so the calibration topic
+    // can be subscribed independently without polluting the main telemetry state.
     useEffect(() => {
         if (isCheckingActive || activeTab !== "ph") return;
 
@@ -92,11 +102,12 @@ function CalibrationWizardContent() {
             if (topic === "reactor/calibration/raw") {
                 try {
                     const payload = JSON.parse(message.toString());
-                    if (payload.raw_voltage !== undefined) {
-                        setRawVoltage(payload.raw_voltage);
+                    // Backend now publishes { raw_value: <int> }
+                    if (payload.raw_value !== undefined) {
+                        setRawValue(payload.raw_value);
                     }
                 } catch (err) {
-                    console.error("Failed to parse raw voltage", err);
+                    console.error("Failed to parse raw ADC value", err);
                 }
             }
         });
@@ -109,28 +120,30 @@ function CalibrationWizardContent() {
 
     const handleCompartmentSelect = (cp: number) => {
         setActiveCompartment(cp);
-        setV1(null);
-        setV2(null);
+        setRaw1(null);
+        setRaw2(null);
+        setRawValue(null);
     };
 
     const handleSaveCalibration = async () => {
-        if (v1 === null || v2 === null) {
-            toast.error("Both buffer voltages must be locked before saving.");
+        if (raw1 === null || raw2 === null) {
+            toast.error("Both buffer raw readings must be locked before saving.");
             return;
         }
         if (ph1 === ph2) {
             toast.error("Buffer pH values must be different.");
             return;
         }
-
-        const slope = (v2 - v1) / (ph2 - ph1);
-        const intercept = v1 - (slope * (ph1 - 7.0));
+        if (raw1 === raw2) {
+            toast.error("Buffer raw readings must be different — check your electrode connection.");
+            return;
+        }
 
         setIsSaving(true);
         const success = await saveCalibration(
             activeCompartment,
-            slope,
-            intercept,
+            ph1, raw1,
+            ph2, raw2,
             user?.name || "Unknown"
         );
         setIsSaving(false);
@@ -138,8 +151,8 @@ function CalibrationWizardContent() {
         if (success) {
             toast.success(`Compartment ${activeCompartment} calibrated successfully.`);
             publishCommand("reactor/control/calibration", { action: "reload_calibration" });
-            setV1(null);
-            setV2(null);
+            setRaw1(null);
+            setRaw2(null);
             setPh1(7.0);
             setPh2(4.0);
             fetchHistory();
@@ -172,7 +185,9 @@ function CalibrationWizardContent() {
                 </Link>
                 <div>
                     <h1 className="text-2xl font-medium tracking-tight text-neutral-100">Calibration</h1>
-                    <p className="text-sm text-neutral-500">Compensated for 37ºC standard reactor temperature.</p>
+                    <p className="text-sm text-neutral-500">
+                        Two-point empirical calibration using raw ADS1115 ADC readings.
+                    </p>
                 </div>
             </div>
 
@@ -202,13 +217,16 @@ function CalibrationWizardContent() {
             {activeTab === "ph" && (
                 <>
                     <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-                        {/* Left Column: Compartment Selection & Status */}
+                        {/* Left Column: Compartment Selection & Live Reading */}
                         <div className="md:col-span-1 space-y-6">
                             <CompartmentSelector
                                 activeCompartment={activeCompartment}
                                 onSelect={handleCompartmentSelect}
                             />
-                            <LiveSensorReading rawVoltage={rawVoltage} />
+                            <LiveSensorReading
+                                rawValue={rawValue}
+                                isStable={isStable}
+                            />
                         </div>
 
                         {/* Right Column: Buffer Wizard */}
@@ -216,40 +234,42 @@ function CalibrationWizardContent() {
                             <BufferSolutionCard
                                 bufferNumber={1}
                                 phValue={ph1}
-                                lockedVoltage={v1}
-                                rawVoltage={rawVoltage}
+                                lockedRaw={raw1}
+                                rawValue={rawValue}
+                                isStable={isStable}
                                 isOperational={isOperational}
                                 onPhChange={setPh1}
                                 onLock={() => {
-                                    if (rawVoltage !== null) {
-                                        setV1(rawVoltage);
-                                        toast.success(`Locked Buffer 1 voltage at ${rawVoltage.toFixed(4)}V`);
+                                    if (rawValue !== null) {
+                                        setRaw1(rawValue);
+                                        toast.success(`Locked Buffer 1 at raw ${rawValue.toLocaleString()}`);
                                     }
                                 }}
-                                onUnlock={() => setV1(null)}
+                                onUnlock={() => setRaw1(null)}
                             />
 
                             <BufferSolutionCard
                                 bufferNumber={2}
                                 phValue={ph2}
-                                lockedVoltage={v2}
-                                rawVoltage={rawVoltage}
-                                isFirstLocked={v1 !== null}
+                                lockedRaw={raw2}
+                                rawValue={rawValue}
+                                isStable={isStable}
+                                isFirstLocked={raw1 !== null}
                                 isOperational={isOperational}
                                 onPhChange={setPh2}
                                 onLock={() => {
-                                    if (rawVoltage !== null) {
-                                        setV2(rawVoltage);
-                                        toast.success(`Locked Buffer 2 voltage at ${rawVoltage.toFixed(4)}V`);
+                                    if (rawValue !== null) {
+                                        setRaw2(rawValue);
+                                        toast.success(`Locked Buffer 2 at raw ${rawValue.toLocaleString()}`);
                                     }
                                 }}
-                                onUnlock={() => setV2(null)}
+                                onUnlock={() => setRaw2(null)}
                             />
 
-                            {v1 !== null && v2 !== null && ph1 !== ph2 && (
+                            {raw1 !== null && raw2 !== null && ph1 !== ph2 && (
                                 <CalibrationSummary
-                                    v1={v1}
-                                    v2={v2}
+                                    raw1={raw1}
+                                    raw2={raw2}
                                     ph1={ph1}
                                     ph2={ph2}
                                     activeCompartment={activeCompartment}
