@@ -37,7 +37,7 @@ class ReactorController:
     # Tune this value based on your electrode / I2C noise floor.
     # At 16-bit full-scale (≈32 767 steps) a threshold of 100 corresponds
     # to roughly 0.3 mV of input noise on a ±2.048 V range.
-    STABILITY_THRESHOLD = 100
+    STABILITY_THRESHOLD = 300
 
     def __init__(self):
         # 1. Hardware Abstraction Layer

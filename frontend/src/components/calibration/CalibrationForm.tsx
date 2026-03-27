@@ -128,7 +128,10 @@ export function BufferSolutionCard({
                         type="number"
                         step="0.01"
                         value={phValue}
-                        onChange={(e) => onPhChange(parseFloat(e.target.value))}
+                        onChange={(e) => {
+                        const parsed = parseFloat(e.target.value);
+                        if (!isNaN(parsed)) onPhChange(parsed);
+                    }}
                         disabled={lockedRaw !== null}
                         className="w-full bg-neutral-950 border border-neutral-800 rounded-lg px-4 py-2 text-neutral-200 focus:outline-none focus:border-indigo-500 transition-colors disabled:opacity-50"
                     />
@@ -190,30 +193,37 @@ export function CalibrationSummary({ raw1, raw2, ph1, ph2, activeCompartment, is
     // Empirical two-point linear model: pH = m·raw + b
     const m = (ph2 - ph1) / (raw2 - raw1);
     const b = ph1 - m * raw1;
+    const isValid = isFinite(m) && isFinite(b);
 
     return (
         <div className="bg-indigo-950/30 border border-indigo-500/30 rounded-2xl p-6">
             <div className="flex items-center justify-between mb-6">
                 <div>
                     <h4 className="text-indigo-400 font-medium text-sm">Calibration Computed</h4>
-                    <p className="text-neutral-400 text-xs mt-1 space-y-0.5">
-                        <span className="block">Slope (m): {m.toExponential(4)} pH/step</span>
-                        <span className="block">Intercept (b): {b.toFixed(4)} pH</span>
-                        <span className="block text-neutral-500 mt-1">
-                            pH = {m.toExponential(3)} × raw + {b.toFixed(3)}
-                        </span>
-                    </p>
+                    {isValid ? (
+                        <p className="text-neutral-400 text-xs mt-1 space-y-0.5">
+                            <span className="block">Slope (m): {m.toExponential(4)} pH/step</span>
+                            <span className="block">Intercept (b): {b.toFixed(4)} pH</span>
+                            <span className="block text-neutral-500 mt-1">
+                                pH = {m.toExponential(3)} &times; raw + {b.toFixed(3)}
+                            </span>
+                        </p>
+                    ) : (
+                        <p className="text-red-400 text-xs mt-1">
+                            ⚠ Raw readings are identical — cannot compute slope. Please retake readings.
+                        </p>
+                    )}
                 </div>
                 <Beaker className="w-8 h-8 text-indigo-500/50" />
             </div>
             <button
                 id="save-calibration-btn"
                 onClick={onSave}
-                disabled={isSaving || !isOperational}
+                disabled={isSaving || !isOperational || !isValid}
                 className="w-full py-3 bg-indigo-600 hover:bg-indigo-500 text-white rounded-lg shadow-lg shadow-indigo-900/20 transition-all font-medium flex items-center justify-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed disabled:hover:bg-indigo-600"
             >
                 <Save className="w-5 h-5" />
-                {isSaving ? "Saving..." : !isOperational ? "System Offline" : `Apply Calibration to Compartment ${activeCompartment}`}
+                {isSaving ? "Saving..." : !isOperational ? "System Offline" : !isValid ? "Invalid readings" : `Apply Calibration to Compartment ${activeCompartment}`}
             </button>
         </div>
     );

@@ -40,14 +40,14 @@ export function CalibrationHistoryTable({ history }: CalibrationHistoryTableProp
                                         </span>
                                     </td>
                                     <td className="px-6 py-4 font-mono">
-                                        <span className="text-indigo-400">{record.point1_ph.toFixed(2)}</span>
+                                        <span className="text-indigo-400">{record.point1_ph != null ? record.point1_ph.toFixed(2) : '—'}</span>
                                         <span className="text-neutral-600 mx-1">/</span>
-                                        <span>{record.point1_raw.toLocaleString()}</span>
+                                        <span>{record.point1_raw != null ? record.point1_raw.toLocaleString() : '—'}</span>
                                     </td>
                                     <td className="px-6 py-4 font-mono">
-                                        <span className="text-indigo-400">{record.point2_ph.toFixed(2)}</span>
+                                        <span className="text-indigo-400">{record.point2_ph != null ? record.point2_ph.toFixed(2) : '—'}</span>
                                         <span className="text-neutral-600 mx-1">/</span>
-                                        <span>{record.point2_raw.toLocaleString()}</span>
+                                        <span>{record.point2_raw != null ? record.point2_raw.toLocaleString() : '—'}</span>
                                     </td>
                                     <td className="px-6 py-4">{record.researcher || "Unknown"}</td>
                                 </tr>

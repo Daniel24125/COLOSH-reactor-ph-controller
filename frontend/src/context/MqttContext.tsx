@@ -60,8 +60,16 @@ export function MqttProvider({ children }: { children: ReactNode }) {
                     // JSON keys are strings — remap to numeric keys to match PhData type.
                     const typed: PhData = {};
                     for (const key of ["1", "2", "3"] as const) {
-                        if (payload[key] !== undefined) {
-                            typed[Number(key) as 1 | 2 | 3] = payload[key];
+                        const entry = payload[key];
+                        if (
+                            entry !== undefined &&
+                            entry !== null &&
+                            typeof entry === "object" &&
+                            "ph" in entry &&
+                            "raw" in entry &&
+                            "stable" in entry
+                        ) {
+                            typed[Number(key) as 1 | 2 | 3] = entry;
                         }
                     }
                     setPhData(typed);

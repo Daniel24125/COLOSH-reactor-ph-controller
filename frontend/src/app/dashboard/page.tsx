@@ -95,9 +95,9 @@ export default function Dashboard() {
                 experiment_id: status.active_experiment,
                 timestamp: now.toISOString(),
                 timeStr: now.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' }),
-                compartment_1_ph: loggedTelemetry[1] || 0,
-                compartment_2_ph: loggedTelemetry[2] || 0,
-                compartment_3_ph: loggedTelemetry[3] || 0,
+                compartment_1_ph: loggedTelemetry[1] ?? null,
+                compartment_2_ph: loggedTelemetry[2] ?? null,
+                compartment_3_ph: loggedTelemetry[3] ?? null,
             };
 
             setChartData(prev => {
@@ -162,16 +162,16 @@ export default function Dashboard() {
             projectName: isCreatingProject ? formData.get("projectName") : undefined,
             researcherName: isCreatingProject ? formData.get("researcherName") : undefined,
             experimentName: formData.get("experimentName"),
-            measurementIntervalMins: parseInt(formData.get("measurementIntervalMins") as string),
-            c1MinPh: parseFloat(formData.get("c1MinPh") as string),
-            c1MaxPh: parseFloat(formData.get("c1MaxPh") as string),
-            c2MinPh: parseFloat(formData.get("c2MinPh") as string),
-            c2MaxPh: parseFloat(formData.get("c2MaxPh") as string),
-            c3MinPh: parseFloat(formData.get("c3MinPh") as string),
-            c3MaxPh: parseFloat(formData.get("c3MaxPh") as string),
-            maxPumpTimeSec: parseInt(formData.get("maxPumpTimeSec") as string),
-            mixingCooldownSec: parseInt(formData.get("mixingCooldownSec") as string),
-            manualDoseSteps: parseInt(formData.get("manualDoseSteps") as string),
+            measurementIntervalMins: parseInt(formData.get("measurementIntervalMins") as string) || 1,
+            c1MinPh: parseFloat(formData.get("c1MinPh") as string) || 0,
+            c1MaxPh: parseFloat(formData.get("c1MaxPh") as string) || 14,
+            c2MinPh: parseFloat(formData.get("c2MinPh") as string) || 0,
+            c2MaxPh: parseFloat(formData.get("c2MaxPh") as string) || 14,
+            c3MinPh: parseFloat(formData.get("c3MinPh") as string) || 0,
+            c3MaxPh: parseFloat(formData.get("c3MaxPh") as string) || 14,
+            maxPumpTimeSec: parseInt(formData.get("maxPumpTimeSec") as string) || 30,
+            mixingCooldownSec: parseInt(formData.get("mixingCooldownSec") as string) || 60,
+            manualDoseSteps: parseInt(formData.get("manualDoseSteps") as string) || 100,
         };
 
         try {

@@ -113,7 +113,9 @@ function CalibrationWizardContent() {
         });
 
         return () => {
-            client.publish("reactor/control/calibration", JSON.stringify({ command: "stop" }));
+            if (client.connected) {
+                client.publish("reactor/control/calibration", JSON.stringify({ command: "stop" }));
+            }
             client.end();
         };
     }, [activeCompartment, isCheckingActive, activeTab]);
