@@ -58,9 +58,11 @@ function CalibrationWizardContent() {
 
     const mqttClientRef = useRef<mqtt.MqttClient | null>(null);
 
-    // Derive stability from the global phData context.
-    // The backend is the single source of truth for the stable flag.
-    const isStable = phData[activeCompartment as 1 | 2 | 3]?.stable ?? false;
+    // Derive stability and offline status from the global phData context.
+    // The backend is the single source of truth for the status flags.
+    const compartmentData = phData[activeCompartment as 1 | 2 | 3];
+    const isStable = compartmentData?.stable ?? false;
+    const isOffline = compartmentData?.isOffline ?? true;
 
     const fetchHistory = async () => {
         const records = await getCalibrationHistory();
@@ -103,7 +105,8 @@ function CalibrationWizardContent() {
                 try {
                     const payload = JSON.parse(message.toString());
                     // Backend now publishes { raw_value: <int> }
-                    if (payload.raw_value !== undefined) {
+                    // Sticky logic: ignore null values so the display persists the last valid reading
+                    if (payload.raw_value !== undefined && payload.raw_value !== null) {
                         setRawValue(payload.raw_value);
                     }
                 } catch (err) {
@@ -228,6 +231,7 @@ function CalibrationWizardContent() {
                             <LiveSensorReading
                                 rawValue={rawValue}
                                 isStable={isStable}
+                                isOffline={isOffline}
                             />
                         </div>
 
@@ -239,6 +243,7 @@ function CalibrationWizardContent() {
                                 lockedRaw={raw1}
                                 rawValue={rawValue}
                                 isStable={isStable}
+                                isOffline={isOffline}
                                 isOperational={isOperational}
                                 onPhChange={setPh1}
                                 onLock={() => {
@@ -256,6 +261,7 @@ function CalibrationWizardContent() {
                                 lockedRaw={raw2}
                                 rawValue={rawValue}
                                 isStable={isStable}
+                                isOffline={isOffline}
                                 isFirstLocked={raw1 !== null}
                                 isOperational={isOperational}
                                 onPhChange={setPh2}

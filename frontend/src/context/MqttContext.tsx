@@ -57,22 +57,31 @@ export function MqttProvider({ children }: { children: ReactNode }) {
                 const payload = JSON.parse(message.toString());
                 if (topic === "reactor/telemetry/ph") {
                     // Payload shape: { "1": { ph, raw, stable }, "2": {...}, "3": {...} }
-                    // JSON keys are strings — remap to numeric keys to match PhData type.
-                    const typed: PhData = {};
-                    for (const key of ["1", "2", "3"] as const) {
-                        const entry = payload[key];
-                        if (
-                            entry !== undefined &&
-                            entry !== null &&
-                            typeof entry === "object" &&
-                            "ph" in entry &&
-                            "raw" in entry &&
-                            "stable" in entry
-                        ) {
-                            typed[Number(key) as 1 | 2 | 3] = entry;
+                    setPhData((prev) => {
+                        const next = { ...prev };
+                        for (const key of ["1", "2", "3"] as const) {
+                            const entry = payload[key];
+                            if (
+                                entry !== undefined &&
+                                entry !== null &&
+                                typeof entry === "object" &&
+                                "ph" in entry &&
+                                "raw" in entry &&
+                                "stable" in entry
+                            ) {
+                                const numKey = Number(key) as 1 | 2 | 3;
+                                const isOffline = entry.ph === null;
+                                next[numKey] = {
+                                    // Sticky logic: if offline, preserve the last known numeric value
+                                    ph: isOffline ? (prev[numKey]?.ph ?? null) : entry.ph,
+                                    raw: isOffline ? (prev[numKey]?.raw ?? null) : entry.raw,
+                                    stable: entry.stable,
+                                    isOffline: isOffline,
+                                };
+                            }
                         }
-                    }
-                    setPhData(typed);
+                        return next;
+                    });
                 } else if (topic === "reactor/telemetry/logged") {
                     setLoggedTelemetry(payload);
                 } else if (topic === "reactor/status") {

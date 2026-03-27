@@ -18,7 +18,7 @@ export const TelemetryGrid = memo(function TelemetryGrid({ phData }: TelemetryGr
             <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
                 {[1, 2, 3].map((id) => {
                     const reading = phData[id as keyof typeof phData];
-                    const isOffline = reading !== undefined && reading.ph === null;
+                    const isOffline = reading?.isOffline ?? true;
                     const isMissing = reading === undefined;
 
                     return (
@@ -36,23 +36,23 @@ export const TelemetryGrid = memo(function TelemetryGrid({ phData }: TelemetryGr
                             <div className="flex flex-col gap-1">
                                 {/* Primary: pH reading */}
                                 <div className="flex items-baseline gap-2">
-                                    <span className={cn("text-5xl font-light tracking-tight", isOffline || isMissing ? "text-neutral-600" : "text-neutral-100")}>
-                                        {!isMissing && !isOffline
-                                            ? reading!.ph?.toFixed(2)
+                                    <span className={cn("text-5xl font-light tracking-tight", isMissing ? "text-neutral-600" : isOffline ? "text-neutral-500" : "text-neutral-100")}>
+                                        {!isMissing && reading.ph !== null
+                                            ? reading.ph.toFixed(2)
                                             : "--"}
                                     </span>
-                                    {!isMissing && !isOffline && <span className="text-neutral-500 text-lg">pH</span>}
+                                    {!isMissing && reading.ph !== null && <span className="text-neutral-500 text-lg">pH</span>}
                                 </div>
 
                                 {/* Secondary: raw ADC integer, faded */}
-                                {!isMissing && !isOffline && reading!.raw !== null && (
+                                {!isMissing && reading.raw !== null && (
                                     <span className="text-sm font-mono text-neutral-600 mt-0.5">
-                                        {reading!.raw.toLocaleString()} <span className="text-neutral-700">raw</span>
+                                        {reading.raw.toLocaleString()} <span className="text-neutral-700">raw</span>
                                     </span>
                                 )}
 
                                 {/* Offline badge */}
-                                {isOffline && (
+                                {isOffline && !isMissing && (
                                     <div className="flex items-center gap-1.5 text-xs font-medium text-red-500 mt-2 bg-red-500/5 border border-red-500/10 px-2 py-1 rounded-md w-fit">
                                         <AlertCircle className="w-3.5 h-3.5" />
                                         Sensor Offline

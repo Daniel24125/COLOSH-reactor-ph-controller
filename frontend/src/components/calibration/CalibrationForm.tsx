@@ -1,6 +1,7 @@
 "use client";
 
-import { Lock, Beaker, Save, Loader2, CheckCircle2 } from "lucide-react";
+import { Lock, Beaker, Save, Loader2, CheckCircle2, AlertCircle } from "lucide-react";
+import { cn } from "@/lib/utils";
 
 // --- CompartmentSelector ---
 interface CompartmentSelectorProps {
@@ -56,18 +57,27 @@ function StabilityBadge({ isStable }: StabilityBadgeProps) {
 interface LiveSensorReadingProps {
     rawValue: number | null;
     isStable: boolean;
+    isOffline: boolean;
 }
 
-export function LiveSensorReading({ rawValue, isStable }: LiveSensorReadingProps) {
+export function LiveSensorReading({ rawValue, isStable, isOffline }: LiveSensorReadingProps) {
     return (
         <div className="bg-neutral-900 border border-neutral-800 rounded-2xl p-6 text-center space-y-3">
             <span className="block text-sm font-medium text-neutral-400">Live Sensor Reading</span>
-            <div className="text-4xl font-light tracking-tight text-indigo-400">
+            <div className={cn(
+                "text-4xl font-light tracking-tight transition-colors",
+                isOffline ? "text-neutral-500" : "text-indigo-400"
+            )}>
                 {rawValue !== null ? rawValue.toLocaleString() : "---"}
                 <span className="text-xl text-neutral-500 ml-2">raw</span>
             </div>
             <div className="flex items-center justify-center">
-                {rawValue !== null ? (
+                {isOffline && rawValue !== null ? (
+                    <div className="flex items-center gap-1.5 text-xs font-semibold text-red-400 bg-red-500/10 border border-red-500/20 px-2.5 py-1 rounded-full w-fit">
+                        <AlertCircle className="w-3.5 h-3.5" />
+                        Sensor Offline
+                    </div>
+                ) : rawValue !== null ? (
                     <StabilityBadge isStable={isStable} />
                 ) : (
                     <span className="text-xs text-neutral-500">Connecting…</span>
@@ -84,6 +94,7 @@ interface BufferSolutionCardProps {
     lockedRaw: number | null;
     rawValue: number | null;
     isStable: boolean;
+    isOffline: boolean;
     isFirstLocked?: boolean;
     isOperational: boolean;
     onPhChange: (value: number) => void;
@@ -97,6 +108,7 @@ export function BufferSolutionCard({
     lockedRaw,
     rawValue,
     isStable,
+    isOffline,
     isFirstLocked,
     isOperational,
     onPhChange,
@@ -105,7 +117,7 @@ export function BufferSolutionCard({
 }: BufferSolutionCardProps) {
     // For buffer 2: requires buffer 1 locked first AND a live reading
     // For buffer 1: requires a live reading
-    const baseDisabled = !isOperational || rawValue === null || (bufferNumber === 2 && !isFirstLocked);
+    const baseDisabled = !isOperational || rawValue === null || isOffline || (bufferNumber === 2 && !isFirstLocked);
     // Lock button also requires the reading to be stable
     const isLockDisabled = baseDisabled || !isStable;
 

@@ -54,6 +54,7 @@ export type CompartmentReading = {
     ph: number | null;
     raw: number | null;
     stable: boolean;
+    isOffline: boolean;
 };
 
 /**
