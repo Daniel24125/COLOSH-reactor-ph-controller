@@ -67,15 +67,17 @@ export async function saveCalibration(
     point1_raw: number,
     point2_ph: number,
     point2_raw: number,
-    researcher: string
+    researcher: string,
+    point3_ph?: number | null,
+    point3_raw?: number | null
 ): Promise<boolean> {
     try {
         const db = await getDb();
         await db.run(
             `INSERT INTO calibrations
-                (compartment, point1_ph, point1_raw, point2_ph, point2_raw, researcher)
-             VALUES (?, ?, ?, ?, ?, ?)`,
-            [compartment, point1_ph, point1_raw, point2_ph, point2_raw, researcher]
+                (compartment, point1_ph, point1_raw, point2_ph, point2_raw, point3_ph, point3_raw, researcher)
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+            [compartment, point1_ph, point1_raw, point2_ph, point2_raw, point3_ph ?? null, point3_raw ?? null, researcher]
         );
         // The client (calibration/page.tsx) is responsible for publishing
         // the reload_calibration command via the MQTT context after this returns.
@@ -92,8 +94,10 @@ export type CalibrationRecord = {
     point1_ph: number;
     point1_raw: number;
     point2_ph: number;
-    point2_raw: number;
-    researcher: string;
+    point2_raw: number,
+    point3_ph: number | null,
+    point3_raw: number | null,
+    researcher: string,
     calibrated_at: string;
 };
 
@@ -102,7 +106,7 @@ export async function getCalibrationHistory(): Promise<CalibrationRecord[]> {
         const db = await getDb();
         const records = await db.all<CalibrationRecord[]>(
             `SELECT id, compartment, point1_ph, point1_raw, point2_ph, point2_raw,
-                    researcher, calibrated_at
+                    point3_ph, point3_raw, researcher, calibrated_at
              FROM calibrations
              WHERE point1_ph IS NOT NULL AND point1_raw IS NOT NULL
                AND point2_ph IS NOT NULL AND point2_raw IS NOT NULL

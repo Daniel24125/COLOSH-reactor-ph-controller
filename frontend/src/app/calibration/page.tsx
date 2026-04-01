@@ -53,6 +53,9 @@ function CalibrationWizardContent() {
     const [ph2, setPh2] = useState<number>(4.0);
     const [raw2, setRaw2] = useState<number | null>(null);
 
+    const [ph3, setPh3] = useState<number>(10.0);
+    const [raw3, setRaw3] = useState<number | null>(null);
+
     const [isSaving, setIsSaving] = useState(false);
     const [history, setHistory] = useState<CalibrationRecord[]>([]);
 
@@ -127,6 +130,7 @@ function CalibrationWizardContent() {
         setActiveCompartment(cp);
         setRaw1(null);
         setRaw2(null);
+        setRaw3(null);
         setRawValue(null);
     };
 
@@ -139,8 +143,8 @@ function CalibrationWizardContent() {
             toast.error("Buffer pH values must be different.");
             return;
         }
-        if (raw1 === raw2) {
-            toast.error("Buffer raw readings must be different — check your electrode connection.");
+        if (raw1 === raw2 || (raw3 !== null && (raw3 === raw2 || raw3 === raw1))) {
+            toast.error("Buffer raw readings must be distinct — check your electrode connection.");
             return;
         }
 
@@ -149,7 +153,8 @@ function CalibrationWizardContent() {
             activeCompartment,
             ph1, raw1,
             ph2, raw2,
-            user?.name || "Unknown"
+            user?.name || "Unknown",
+            ph3, raw3
         );
         setIsSaving(false);
 
@@ -158,8 +163,10 @@ function CalibrationWizardContent() {
             publishCommand("reactor/control/calibration", { action: "reload_calibration" });
             setRaw1(null);
             setRaw2(null);
+            setRaw3(null);
             setPh1(7.0);
             setPh2(4.0);
+            setPh3(10.0);
             fetchHistory();
         } else {
             toast.error("Failed to save calibration data.");
@@ -262,7 +269,7 @@ function CalibrationWizardContent() {
                                 rawValue={rawValue}
                                 isStable={isStable}
                                 isOffline={isOffline}
-                                isFirstLocked={raw1 !== null}
+                                isPreviousLocked={raw1 !== null}
                                 isOperational={isOperational}
                                 onPhChange={setPh2}
                                 onLock={() => {
@@ -274,12 +281,33 @@ function CalibrationWizardContent() {
                                 onUnlock={() => setRaw2(null)}
                             />
 
+                            <BufferSolutionCard
+                                bufferNumber={3}
+                                phValue={ph3}
+                                lockedRaw={raw3}
+                                rawValue={rawValue}
+                                isStable={isStable}
+                                isOffline={isOffline}
+                                isPreviousLocked={raw2 !== null}
+                                isOperational={isOperational}
+                                onPhChange={setPh3}
+                                onLock={() => {
+                                    if (rawValue !== null) {
+                                        setRaw3(rawValue);
+                                        toast.success(`Locked Buffer 3 at raw ${rawValue.toLocaleString()}`);
+                                    }
+                                }}
+                                onUnlock={() => setRaw3(null)}
+                            />
+
                             {raw1 !== null && raw2 !== null && ph1 !== ph2 && (
                                 <CalibrationSummary
                                     raw1={raw1}
                                     raw2={raw2}
                                     ph1={ph1}
                                     ph2={ph2}
+                                    raw3={raw3}
+                                    ph3={ph3}
                                     activeCompartment={activeCompartment}
                                     isSaving={isSaving}
                                     isOperational={isOperational}

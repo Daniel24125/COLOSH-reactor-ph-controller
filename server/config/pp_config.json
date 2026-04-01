@@ -4,7 +4,7 @@
     "dir_pin": 21,
     "step_pin": 20,
     "en_pin": 16,
-    "steps_per_ml": 8351.13
+    "steps_per_ml": 8790.663157894736
   },
   "location_2": {
     "name": "Pump 2",

@@ -74,6 +74,8 @@ class SQLiteClient:
                         point1_raw INTEGER,
                         point2_ph REAL,
                         point2_raw INTEGER,
+                        point3_ph REAL,
+                        point3_raw INTEGER,
                         researcher TEXT,
                         calibrated_at DATETIME DEFAULT CURRENT_TIMESTAMP
                     )
@@ -87,6 +89,8 @@ class SQLiteClient:
                     'ALTER TABLE calibrations ADD COLUMN point1_raw INTEGER',
                     'ALTER TABLE calibrations ADD COLUMN point2_ph REAL',
                     'ALTER TABLE calibrations ADD COLUMN point2_raw INTEGER',
+                    'ALTER TABLE calibrations ADD COLUMN point3_ph REAL',
+                    'ALTER TABLE calibrations ADD COLUMN point3_raw INTEGER',
                 ]
                 for stmt in migration_cols:
                     try:
@@ -121,7 +125,7 @@ class SQLiteClient:
                 calibrations = {}
                 for comp in [1, 2, 3]:
                     cursor.execute('''
-                        SELECT point1_ph, point1_raw, point2_ph, point2_raw
+                        SELECT point1_ph, point1_raw, point2_ph, point2_raw, point3_ph, point3_raw
                         FROM calibrations
                         WHERE compartment = ?
                           AND point1_ph IS NOT NULL

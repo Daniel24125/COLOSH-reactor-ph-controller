@@ -35,9 +35,14 @@ class ReactorController:
     # A reading is considered stable when the spread of the window
     # (max − min in raw ADC steps) is below this threshold.
     # Tune this value based on your electrode / I2C noise floor.
-    # At 16-bit full-scale (≈32 767 steps) a threshold of 100 corresponds
-    # to roughly 0.3 mV of input noise on a ±2.048 V range.
-    STABILITY_THRESHOLD = 300
+    # At 16-bit full-scale (≈32 767 steps) a threshold of 50 corresponds
+    # to roughly 0.15 mV of input noise on a ±2.048 V range.
+    STABILITY_THRESHOLD = 250
+
+    # ── Process Stability (Moving Average) ─────────────────────────────────
+    # Number of calculated pH readings held in the sliding average window.
+    # Used for dosing logic and dashboard display to prevent noise bouncing.
+    PH_MOVING_AVG_WINDOW = 10
 
     def __init__(self):
         # 1. Hardware Abstraction Layer
@@ -58,6 +63,7 @@ class ReactorController:
         self.mqtt.on_pump_prime = self.handle_pump_prime
         self.mqtt.on_pump_calibrate_run = self.handle_pump_calibrate_run
         self.mqtt.on_pump_save_calibration = self.handle_pump_save_calibration
+        self.mqtt.on_pump_cmd = self.handle_pump_cmd
 
         # 4. System state
         self.running = False
@@ -69,12 +75,23 @@ class ReactorController:
         self.last_measurement_time = 0.0
         self.sensor_error_logged = {c: False for c in self.COMPARTMENTS}
         self.active_dosing_tasks = {c: None for c in self.COMPARTMENTS}
+        self.active_manual_dose_tasks = {c: None for c in self.COMPARTMENTS}
+        self.manual_override = {c: False for c in self.COMPARTMENTS}
 
-        # 5. Stability sliding windows — one deque per compartment
+        # 5. Sliding windows — one per compartment
+        # raw_windows track ADC values for hardware stability checks
         self.raw_windows: dict[int, collections.deque] = {
             c: collections.deque(maxlen=self.STABILITY_WINDOW_SIZE)
             for c in self.COMPARTMENTS
         }
+        # ph_avg_windows track calculated pH for process smoothing (MA)
+        self.ph_avg_windows: dict[int, collections.deque] = {
+            c: collections.deque(maxlen=self.PH_MOVING_AVG_WINDOW)
+            for c in self.COMPARTMENTS
+        }
+
+        # 6. DAQ Bucketing for telemetry logging (1Hz average)
+        self.telemetry_buckets: dict[int, list] = {c: [] for c in self.COMPARTMENTS}
 
     # ── Event helpers ──────────────────────────────────────────────────────
 
@@ -144,6 +161,53 @@ class ReactorController:
         """Reload the active experiment after an automated threshold update."""
         logger.info("Auto update triggered from MQTT. Reloading active experiment.")
         self.active_experiment = self.sqlite.get_active_experiment()
+
+    async def handle_pump_cmd(self, compartment_id: int, payload: dict):
+        """Handle new pattern MQTT manual pump commands (Jog, Dose, Start, Stop)."""
+        action = payload.get("action")  # "jog", "dose", "start", "stop"
+        
+        # 1. Immediate stop / task cancellation
+        if action == "stop":
+            if self.active_manual_dose_tasks[compartment_id]:
+                self.active_manual_dose_tasks[compartment_id].cancel()
+                self.active_manual_dose_tasks[compartment_id] = None
+            return
+
+        # 2. Cancel any existing manual task for this compartment before starting a new one
+        if self.active_manual_dose_tasks[compartment_id]:
+            self.active_manual_dose_tasks[compartment_id].cancel()
+
+        # 3. Calculate duration
+        duration = 0.0
+        if action == "jog":
+            duration = 0.5
+        elif action == "start":
+            duration = 3.0  # Safety Max Timeout
+        elif action == "dose":
+            if "volume" in payload:
+                # Calculate duration from volume using calibration
+                try:
+                    vol_ml = float(payload["volume"])
+                    config = self.pump_config_manager.get_pump_config(f"location_{compartment_id}")
+                    spm = float(config.get("steps_per_ml", 1000.0))
+                    # Pulse frequency is 1 step per 2ms = 500 steps/sec
+                    steps = vol_ml * spm
+                    duration = steps * self.ph_ctrl.SEC_PER_STEP
+                except Exception as e:
+                    logger.error(f"Failed to calculate duration from volume: {e}")
+                    return
+            else:
+                duration = float(payload.get("duration", 0.0))
+
+        if duration <= 0:
+            logger.warning(f"Invalid pump command duration for compartment {compartment_id}: {duration}")
+            return
+
+        logger.info(f"Manual pump command for compartment {compartment_id}: {action} for {duration:.2f}s")
+        # 4. Dispatch the non-blocking manual dose task
+        self.active_manual_dose_tasks[compartment_id] = asyncio.create_task(
+            self._run_manual_dose_task(compartment_id, duration)
+        )
 
     # ── Peristaltic Pump Calibration Handlers ──────────────────────────────
 
@@ -252,6 +316,9 @@ class ReactorController:
         if time.time() - self.last_dose_time[compartment_id] < cooldown:
             return  # Still within cooldown window
 
+        if self.manual_override[compartment_id]:
+            return  # Manual dose in progress — skip auto-dose
+
         if current_ph >= target_min:
             return  # pH is within range — no dose required
 
@@ -308,6 +375,35 @@ class ReactorController:
             logger.error(f"Auto dose failed: {exc}")
             await self._log_event("ERROR", f"Auto pump safety cutoff triggered: {exc}", compartment_id)
 
+    async def _run_manual_dose_task(self, compartment_id: int, duration: float):
+        """Non-blocking manual dose task using asyncio.sleep."""
+        if compartment_id not in self.hw.pumps:
+            return
+
+        pump = self.hw.pumps[compartment_id]
+        location = f"location_{compartment_id}"
+        
+        self.manual_override[compartment_id] = True
+        self.mqtt.publish_pump_active_status(location, True)
+        await self._log_event("INFO", f"Manual dose started: {duration:.2f}s", compartment_id)
+
+        try:
+            # Start the hardware pulse loop in a thread (starts the motor)
+            await asyncio.to_thread(pump.start_prime)
+            # Non-blocking wait while sensor reads continue
+            await asyncio.sleep(duration)
+        except asyncio.CancelledError:
+            logger.info(f"Manual dose for compartment {compartment_id} was cancelled/stopped.")
+        except Exception as e:
+            logger.error(f"Manual dose loop error for compartment {compartment_id}: {e}")
+        finally:
+            # STOP the loop (guaranteed shutoff even on cancellation)
+            await asyncio.to_thread(pump.stop_prime)
+            self.manual_override[compartment_id] = False
+            self.mqtt.publish_pump_active_status(location, False)
+            self.active_manual_dose_tasks[compartment_id] = None
+            await self._log_event("INFO", f"Manual dose ended.", compartment_id)
+
     # ── Run-loop helpers ───────────────────────────────────────────────────
 
     async def _read_sensors(self) -> dict:
@@ -326,25 +422,36 @@ class ReactorController:
                 raw = await asyncio.to_thread(self.hw.adc.read_raw_value, compartment_id)
 
                 if raw is not None:
-                    # Update the sliding window with the new raw reading
-                    window = self.raw_windows[compartment_id]
-                    window.append(raw)
-
-                    # Stability: spread < STABILITY_THRESHOLD over at least 2 readings
+                    # 1. Hardware Stability: spread of raw ADC integers
+                    raw_window = self.raw_windows[compartment_id]
+                    raw_window.append(raw)
                     is_stable = (
-                        len(window) >= 2
-                        and (max(window) - min(window)) < self.STABILITY_THRESHOLD
+                        len(raw_window) >= 2
+                        and (max(raw_window) - min(raw_window)) < self.STABILITY_THRESHOLD
                     )
 
-                    ph_val = self.ph_ctrl.raw_to_ph(compartment_id, raw)
+                    # 2. Convert raw to instantaneous pH
+                    inst_ph = self.ph_ctrl.raw_to_ph(compartment_id, raw)
+
+                    # 3. Process Stability: Moving Average pH
+                    ph_avg_window = self.ph_avg_windows[compartment_id]
+                    ph_avg_window.append(inst_ph)
+                    ma_ph = sum(ph_avg_window) / len(ph_avg_window)
+                    ma_ph = round(ma_ph, 2)
+
+                    # 4. DAQ Bucketing: accumulate for logging
+                    self.telemetry_buckets[compartment_id].append(inst_ph)
+
                     sensor_data[compartment_id] = {
-                        "ph": ph_val,
-                        "raw": raw,
+                        "ph": ma_ph,       # Dashboard display & dosing use MA
+                        "raw": raw,        # Raw used for calibration UI
                         "stable": is_stable,
                     }
                 else:
-                    # Sensor offline — clear stability window so stale data is not used
+                    # Sensor offline — clear windows and buckets
                     self.raw_windows[compartment_id].clear()
+                    self.ph_avg_windows[compartment_id].clear()
+                    self.telemetry_buckets[compartment_id].clear()
                     sensor_data[compartment_id] = {"ph": None, "raw": None, "stable": False}
 
                 # In calibration mode, stream the latest raw value to the frontend
@@ -373,19 +480,29 @@ class ReactorController:
                 await self._dose_if_needed(compartment_id, ph_val)
 
     async def _log_telemetry(self, sensor_data: dict):
-        """Persist a telemetry snapshot to SQLite when the logging interval has elapsed."""
+        """Persist a telemetry snapshot to SQLite using the mean of the DAQ bucket."""
         if not self.active_experiment:
             return
+        
         interval_mins = self.active_experiment.get("measurement_interval_mins", 1)
         if time.time() - self.last_measurement_time >= interval_mins * 60:
-            # Extract only the pH float for DB persistence (raw & stable are transient)
-            ph_only = {c: v.get("ph") for c, v in sensor_data.items()}
+            # Calculate mean for each bucket
+            ph_averages = {}
+            for c in self.COMPARTMENTS:
+                bucket = self.telemetry_buckets[c]
+                if bucket:
+                    avg_val = round(sum(bucket) / len(bucket), 2)
+                    ph_averages[c] = avg_val
+                    bucket.clear()  # Clear after logging
+                else:
+                    ph_averages[c] = None
+
             await asyncio.to_thread(
                 self.sqlite.log_telemetry,
                 self.active_experiment["id"],
-                ph_only
+                ph_averages
             )
-            self.mqtt.publish_logged_telemetry(ph_only)
+            self.mqtt.publish_logged_telemetry(ph_averages)
             self.last_measurement_time = time.time()
 
     def _publish(self, sensor_data: dict):

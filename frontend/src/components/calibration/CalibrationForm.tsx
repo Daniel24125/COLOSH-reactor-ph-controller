@@ -89,13 +89,13 @@ export function LiveSensorReading({ rawValue, isStable, isOffline }: LiveSensorR
 
 // --- BufferSolutionCard ---
 interface BufferSolutionCardProps {
-    bufferNumber: 1 | 2;
+    bufferNumber: number;
     phValue: number;
     lockedRaw: number | null;
     rawValue: number | null;
     isStable: boolean;
     isOffline: boolean;
-    isFirstLocked?: boolean;
+    isPreviousLocked?: boolean;
     isOperational: boolean;
     onPhChange: (value: number) => void;
     onLock: () => void;
@@ -109,15 +109,16 @@ export function BufferSolutionCard({
     rawValue,
     isStable,
     isOffline,
-    isFirstLocked,
+    isPreviousLocked,
     isOperational,
     onPhChange,
     onLock,
     onUnlock,
 }: BufferSolutionCardProps) {
-    // For buffer 2: requires buffer 1 locked first AND a live reading
+    // For buffers > 1: requires the previous buffer locked first AND a live reading
     // For buffer 1: requires a live reading
-    const baseDisabled = !isOperational || rawValue === null || isOffline || (bufferNumber === 2 && !isFirstLocked);
+    const isFirst = bufferNumber === 1;
+    const baseDisabled = !isOperational || rawValue === null || isOffline || (!isFirst && !isPreviousLocked);
     // Lock button also requires the reading to be stable
     const isLockDisabled = baseDisabled || !isStable;
 
@@ -129,6 +130,7 @@ export function BufferSolutionCard({
                         {bufferNumber}
                     </span>
                     Buffer Solution {bufferNumber}
+                    {bufferNumber === 3 && <span className="text-neutral-500 text-xs ml-2 font-normal">(Optional)</span>}
                 </h3>
                 {lockedRaw !== null && <Lock className="w-4 h-4 text-emerald-500" />}
             </div>
@@ -195,34 +197,51 @@ interface CalibrationSummaryProps {
     raw2: number;
     ph1: number;
     ph2: number;
+    raw3: number | null;
+    ph3: number | null;
     activeCompartment: number;
     isSaving: boolean;
     isOperational: boolean;
     onSave: () => void;
 }
 
-export function CalibrationSummary({ raw1, raw2, ph1, ph2, activeCompartment, isSaving, isOperational, onSave }: CalibrationSummaryProps) {
-    // Empirical two-point linear model: pH = m·raw + b
-    const m = (ph2 - ph1) / (raw2 - raw1);
-    const b = ph1 - m * raw1;
-    const isValid = isFinite(m) && isFinite(b);
+export function CalibrationSummary({ raw1, raw2, ph1, ph2, raw3, ph3, activeCompartment, isSaving, isOperational, onSave }: CalibrationSummaryProps) {
+    // Piecewise model calculations
+    // Segment 1: p1 to p2
+    const m1 = (ph2 - ph1) / (raw2 - raw1);
+    const b1 = ph1 - m1 * raw1;
+    const isS1Valid = isFinite(m1) && isFinite(b1);
+
+    // Segment 2: p2 to p3 (if provided)
+    const hasP3 = raw3 !== null && ph3 !== null;
+    const m2 = hasP3 ? (ph3 - ph2) / (raw3 - raw2) : null;
+    const b2 = (hasP3 && m2 !== null) ? ph2 - m2 * raw2 : null;
+    const isS2Valid = hasP3 ? (isFinite(m2!) && isFinite(b2!)) : true;
+    const isAllValid = isS1Valid && isS2Valid;
 
     return (
         <div className="bg-indigo-950/30 border border-indigo-500/30 rounded-2xl p-6">
             <div className="flex items-center justify-between mb-6">
                 <div>
-                    <h4 className="text-indigo-400 font-medium text-sm">Calibration Computed</h4>
-                    {isValid ? (
-                        <p className="text-neutral-400 text-xs mt-1 space-y-0.5">
-                            <span className="block">Slope (m): {m.toExponential(4)} pH/step</span>
-                            <span className="block">Intercept (b): {b.toFixed(4)} pH</span>
-                            <span className="block text-neutral-500 mt-1">
-                                pH = {m.toExponential(3)} &times; raw + {b.toFixed(3)}
-                            </span>
-                        </p>
+                    <h4 className="text-indigo-400 font-medium text-sm">Calibration Computed ({hasP3 ? "3-point Piecewise" : "2-point Linear"})</h4>
+                    {isAllValid ? (
+                        <div className="text-neutral-400 text-xs mt-1 space-y-2">
+                            <div>
+                                <span className="font-semibold text-neutral-300 block mb-1">Segment 1 (Buffer 1 ↔ 2):</span>
+                                <span className="block">Slope: {m1.toExponential(4)} pH/step</span>
+                                <span className="block italic text-neutral-500">pH = {m1.toExponential(3)} &times; raw + {b1.toFixed(3)}</span>
+                            </div>
+                            {hasP3 && m2 !== null && b2 !== null && (
+                                <div className="pt-2 border-t border-indigo-500/20">
+                                    <span className="font-semibold text-neutral-300 block mb-1">Segment 2 (Buffer 2 ↔ 3):</span>
+                                    <span className="block">Slope: {m2.toExponential(4)} pH/step</span>
+                                    <span className="block italic text-neutral-500">pH = {m2.toExponential(3)} &times; raw + {b2.toFixed(3)}</span>
+                                </div>
+                            )}
+                        </div>
                     ) : (
                         <p className="text-red-400 text-xs mt-1">
-                            ⚠ Raw readings are identical — cannot compute slope. Please retake readings.
+                            ⚠ Raw readings are degenerate — cannot compute slopes. Please retake readings.
                         </p>
                     )}
                 </div>
@@ -231,11 +250,11 @@ export function CalibrationSummary({ raw1, raw2, ph1, ph2, activeCompartment, is
             <button
                 id="save-calibration-btn"
                 onClick={onSave}
-                disabled={isSaving || !isOperational || !isValid}
+                disabled={isSaving || !isOperational || !isAllValid}
                 className="w-full py-3 bg-indigo-600 hover:bg-indigo-500 text-white rounded-lg shadow-lg shadow-indigo-900/20 transition-all font-medium flex items-center justify-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed disabled:hover:bg-indigo-600"
             >
                 <Save className="w-5 h-5" />
-                {isSaving ? "Saving..." : !isOperational ? "System Offline" : !isValid ? "Invalid readings" : `Apply Calibration to Compartment ${activeCompartment}`}
+                {isSaving ? "Saving..." : !isOperational ? "System Offline" : !isAllValid ? "Invalid readings" : `Apply Calibration to Compartment ${activeCompartment}`}
             </button>
         </div>
     );

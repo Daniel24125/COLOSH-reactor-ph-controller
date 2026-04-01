@@ -8,36 +8,102 @@ import { Project } from "@/types";
 import { useUser } from "@/context/UserContext";
 
 // --- ManualOverrideControl ---
+import { useState } from "react";
+import { useMqtt } from "@/hooks/useMqtt";
+import { toast } from "sonner";
+import { Zap } from "lucide-react";
+
 interface ManualOverrideControlProps {
     isOperational: boolean;
-    onManualDose: (pumpId: number) => void;
 }
 
-export const ManualOverrideControl = memo(function ManualOverrideControl({ isOperational, onManualDose }: ManualOverrideControlProps) {
+export const ManualOverrideControl = memo(function ManualOverrideControl({ isOperational }: ManualOverrideControlProps) {
+    const { publishCommand } = useMqtt();
+    const [selectedVolumes, setSelectedVolumes] = useState<Record<number, number>>({ 1: 0.5, 2: 0.5, 3: 0.5 });
+
+    const handleStart = (id: number) => {
+        if (!isOperational) return;
+        publishCommand(`reactor/${id}/cmd/pump`, { action: "start", pump: "base" });
+    };
+
+    const handleStop = (id: number) => {
+        if (!isOperational) return;
+        publishCommand(`reactor/${id}/cmd/pump`, { action: "stop", pump: "base" });
+    };
+
+    const handlePresetDose = (id: number) => {
+        if (!isOperational) return;
+        const volume = selectedVolumes[id];
+        publishCommand(`reactor/${id}/cmd/pump`, { action: "dose", pump: "base", volume });
+        toast.info(`Manual Dose: ${volume}mL scheduled for Pump ${id}`);
+    };
+
+    const updateSelectedVolume = (id: number, vol: number) => {
+        setSelectedVolumes(prev => ({ ...prev, [id]: vol }));
+    };
+
     return (
         <div>
             <h2 className="text-lg font-medium text-neutral-200 mb-4">Manual Override</h2>
-            <div className="bg-neutral-900 rounded-2xl border border-neutral-800 p-6 h-[calc(100%-2rem)] flex flex-col justify-between">
-                <div className="grid grid-cols-1 gap-4">
+            <div className="bg-neutral-900 rounded-2xl border border-neutral-800 p-6 space-y-6">
+                <div className="space-y-4">
                     {[1, 2, 3].map((id) => (
-                        <button
-                            key={`pump-${id}`}
-                            onClick={() => onManualDose(id)}
-                            disabled={!isOperational}
-                            className="group relative overflow-hidden flex items-center justify-between p-4 rounded-xl bg-neutral-950 border border-neutral-800 hover:border-indigo-500/50 transition-all disabled:opacity-50 disabled:cursor-not-allowed disabled:hover:border-neutral-800"
-                        >
-                            <div className="flex flex-col items-start gap-1">
+                        <div key={`pump-group-${id}`} className="p-4 rounded-xl bg-neutral-950 border border-neutral-800 space-y-4">
+                            <div className="flex items-center justify-between">
                                 <span className="text-neutral-400 text-sm font-medium">Pump {id}</span>
-                                <span className="text-neutral-200">Dose Base</span>
+                                <div className="flex items-center gap-1.5 px-2 py-1 rounded-md bg-indigo-500/10 border border-indigo-500/20">
+                                    <Droplet className="w-3 h-3 text-indigo-400" />
+                                    <span className="text-[10px] uppercase tracking-wider font-bold text-indigo-400">Base</span>
+                                </div>
                             </div>
-                            <div className="w-10 h-10 rounded-full bg-indigo-500/10 flex items-center justify-center group-hover:bg-indigo-500 group-hover:scale-110 transition-all">
-                                <Droplet className="w-4 h-4 text-indigo-400 group-hover:text-neutral-950 transition-colors" />
+
+                            <div className="grid grid-cols-2 gap-3">
+                                {/* Control A: Press and Hold */}
+                                <button
+                                    onMouseDown={() => handleStart(id)}
+                                    onMouseUp={() => handleStop(id)}
+                                    onMouseLeave={() => handleStop(id)}
+                                    onTouchStart={() => handleStart(id)}
+                                    onTouchEnd={() => handleStop(id)}
+                                    disabled={!isOperational}
+                                    className="flex items-center justify-center gap-2 py-3 px-4 rounded-lg bg-neutral-900 border border-neutral-800 hover:border-amber-500/50 hover:bg-neutral-800 transition-all active:scale-95 disabled:opacity-50 select-none"
+                                >
+                                    <Zap className="w-4 h-4 text-amber-400" />
+                                    <span className="text-xs font-semibold text-neutral-200">Press to Pump</span>
+                                </button>
+
+                                {/* Control B: Preset Selection */}
+                                <div className="flex flex-col gap-2">
+                                    <div className="flex bg-neutral-900 border border-neutral-800 rounded-lg p-0.5">
+                                        {[0.2, 0.5, 1.0].map((vol) => (
+                                            <button
+                                                key={`vol-${id}-${vol}`}
+                                                onClick={() => updateSelectedVolume(id, vol)}
+                                                className={`flex-1 py-1 text-[10px] font-bold rounded-md transition-all ${
+                                                    selectedVolumes[id] === vol 
+                                                    ? "bg-indigo-600 text-white shadow-sm" 
+                                                    : "text-neutral-500 hover:text-neutral-300"
+                                                }`}
+                                            >
+                                                {vol}
+                                            </button>
+                                        ))}
+                                    </div>
+                                    <button
+                                        onClick={() => handlePresetDose(id)}
+                                        disabled={!isOperational}
+                                        className="py-1.5 px-3 rounded-lg bg-indigo-600 hover:bg-indigo-500 text-white text-[10px] font-bold transition-all shadow-lg shadow-indigo-900/20 active:scale-95 disabled:opacity-50"
+                                    >
+                                        Dose {selectedVolumes[id]}mL
+                                    </button>
+                                </div>
                             </div>
-                        </button>
+                        </div>
                     ))}
                 </div>
-                <p className="text-neutral-500 text-sm mt-4">
-                    Clicking a pump immediately forces a 50-step dose. Overrides any active auto-loop.
+                <p className="text-neutral-500 text-xs leading-relaxed">
+                    <span className="text-amber-500/80 font-semibold px-1">SAFETY NOTE:</span> 
+                    Press-to-pump has a 3s hardware cutoff. Preset doses use calibrated volumetric math.
                 </p>
             </div>
         </div>

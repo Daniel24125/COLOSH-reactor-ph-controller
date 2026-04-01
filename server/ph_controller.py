@@ -49,7 +49,8 @@ class PhController:
             calibrations: {
                 compartment_id: {
                     "point1_ph": float, "point1_raw": int,
-                    "point2_ph": float, "point2_raw": int
+                    "point2_ph": float, "point2_raw": int,
+                    "point3_ph": float, "point3_raw": int
                 }
             }
             as returned by SQLiteClient.get_latest_calibrations()
@@ -64,8 +65,8 @@ class PhController:
 
     def raw_to_ph(self, compartment_id: int, raw_value: int) -> float:
         """
-        Convert a raw 16-bit ADC integer reading to a pH value using the
-        empirical two-point linear calibration stored for this compartment.
+        Convert a raw 16-bit ADC integer reading to a pH value using either
+        a two-point linear or a three-point piecewise linear calibration.
 
         Args:
             compartment_id: The reactor compartment (1, 2, or 3).
@@ -88,8 +89,10 @@ class PhController:
         p1_raw = calib.get("point1_raw")
         p2_ph  = calib.get("point2_ph")
         p2_raw = calib.get("point2_raw")
+        p3_ph  = calib.get("point3_ph")
+        p3_raw = calib.get("point3_raw")
 
-        # Validate all four points are present and the raw values differ
+        # Validate that at least the first two points are present
         if None in (p1_ph, p1_raw, p2_ph, p2_raw):
             logger.warning(
                 f"Incomplete calibration data for compartment {compartment_id}. "
@@ -104,11 +107,36 @@ class PhController:
             )
             return self.DEFAULT_FALLBACK_PH
 
-        # Two-point linear interpolation: pH = m·raw + b
-        m = (p2_ph - p1_ph) / (p2_raw - p1_raw)
-        b = p1_ph - m * p1_raw
-        ph = m * raw_value + b
+        # Piecewise selection logic
+        use_p1p2 = True
+        
+        if p3_ph is not None and p3_raw is not None:
+            # We have a 3rd point. Check which segment to use.
+            # Assuming raw values are monotonic with pH (usually increasing or decreasing).
+            # Case A: p1 < p2 < p3 (or vice-versa)
+            midpoint = p2_raw
+            if p1_raw < p3_raw: # Increasing raw ADC
+                if raw_value > midpoint:
+                    use_p1p2 = False
+            else: # Decreasing raw ADC
+                if raw_value < midpoint:
+                    use_p1p2 = False
 
+        if use_p1p2:
+            # Segment 1: p1 to p2
+            m = (p2_ph - p1_ph) / (p2_raw - p1_raw)
+            b = p1_ph - m * p1_raw
+        else:
+            # Segment 2: p2 to p3
+            if p3_raw == p2_raw:
+                # Should not happen with valid calibration
+                m = (p2_ph - p1_ph) / (p2_raw - p1_raw)
+                b = p1_ph - m * p1_raw
+            else:
+                m = (p3_ph - p2_ph) / (p3_raw - p2_raw)
+                b = p2_ph - m * p2_raw
+
+        ph = m * raw_value + b
         return round(ph, 2)
 
     # ── Proportional dosing ───────────────────────────────────────────────────

@@ -22,6 +22,7 @@ class MQTTClient:
         self.on_pump_prime = None
         self.on_pump_calibrate_run = None
         self.on_pump_save_calibration = None
+        self.on_pump_cmd = None
 
         self.client = mqtt.Client(mqtt.CallbackAPIVersion.VERSION2, client_id=self.client_id)
         self.client.on_connect = self._on_connect
@@ -56,6 +57,7 @@ class MQTTClient:
             client.subscribe("pump/control/calibrate_run")
             client.subscribe("pump/config/save_calibration")
             client.subscribe("reactor/db/request")
+            client.subscribe("reactor/+/cmd/pump")  # reactor/{compartment_id}/cmd/pump
         else:
             logger.error(f"Failed to connect, return code {reason_code}")
 
@@ -110,6 +112,17 @@ class MQTTClient:
                 self._handle_db_query(data),
                 self._loop
             )
+        elif "cmd/pump" in topic and self.on_pump_cmd:
+            # Topic: reactor/{compartment_id}/cmd/pump
+            parts = topic.split("/")
+            try:
+                compartment_id = int(parts[1])
+                asyncio.run_coroutine_threadsafe(
+                    self.on_pump_cmd(compartment_id, data),
+                    self._loop
+                )
+            except (ValueError, IndexError):
+                logger.error(f"Malformed pump command topic: {topic}")
 
     async def _handle_db_query(self, payload: dict):
         try:
