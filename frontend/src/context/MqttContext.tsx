@@ -25,6 +25,8 @@ interface MqttContextValue {
     dosePump: (pumpId: number, direction: "forward" | "reverse", steps?: number) => void;
     updateAutoThresholds: (experimentId: string, phMin: number, phMax: number) => void;
     publishCommand: (topic: string, payload: object) => void;
+    reactorData: any | null;
+    setReactorData: React.Dispatch<React.SetStateAction<any | null>>;
 }
 
 const MqttContext = createContext<MqttContextValue | null>(null);
@@ -37,6 +39,7 @@ export function MqttProvider({ children }: { children: ReactNode }) {
     const [eventLogs, setEventLogs] = useState<LogEvent[]>([]);
     const [isConnected, setIsConnected] = useState(false);
     const [isServerOnline, setIsServerOnline] = useState<boolean | null>(null);
+    const [reactorData, setReactorData] = useState<any | null>(null);
 
     useEffect(() => {
         console.log("MqttProvider: connecting to", BROKER_URL);
@@ -50,6 +53,7 @@ export function MqttProvider({ children }: { children: ReactNode }) {
             mqttClient.subscribe("reactor/status");
             mqttClient.subscribe("reactor/events");
             mqttClient.subscribe("reactor/server/status");
+            mqttClient.subscribe("colosh/status");
         });
 
         mqttClient.on("message", (topic, message) => {
@@ -100,6 +104,8 @@ export function MqttProvider({ children }: { children: ReactNode }) {
                         }
                         return online;
                     });
+                } else if (topic === "colosh/status") {
+                    setReactorData(payload);
                 }
             } catch (err) {
                 console.error("MQTT parse error", err);
@@ -146,6 +152,7 @@ export function MqttProvider({ children }: { children: ReactNode }) {
             client, isConnected, isServerOnline,
             phData, loggedTelemetry, status, setStatus, eventLogs,
             dosePump, updateAutoThresholds, publishCommand,
+            reactorData, setReactorData
         }}>
             {children}
         </MqttContext.Provider>

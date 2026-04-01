@@ -22,7 +22,7 @@ const SetupExperimentModal = dynamic(
 );
 
 export default function Dashboard() {
-    const { isConnected, isServerOnline, phData, loggedTelemetry, status, setStatus, eventLogs, dosePump, publishCommand } = useMqtt();
+    const { isConnected, isServerOnline, phData, loggedTelemetry, status, setStatus, eventLogs, dosePump, publishCommand, reactorData, setReactorData } = useMqtt();
     const isOperational = isConnected && isServerOnline === true;
     const [showSetup, setShowSetup] = useState(false);
     const [isSubmitting, setIsSubmitting] = useState(false);
@@ -31,6 +31,10 @@ export default function Dashboard() {
     const [projects, setProjects] = useState<Project[]>([]);
     const [isCreatingProject, setIsCreatingProject] = useState(false);
     const [selectedProjectId, setSelectedProjectId] = useState<string>("");
+
+    // RPC State
+    const [isLoading, setIsLoading] = useState(true);
+    const [isOnline, setIsOnline] = useState(false);
 
     // Telemetry Chart State
     const [chartData, setChartData] = useState<(Telemetry & { timeStr: string })[]>([]);
@@ -46,6 +50,44 @@ export default function Dashboard() {
 
     // Fetch initial status from DB so we don't wait for periodic MQTT ping
     useEffect(() => {
+        // RPC Loop
+        if (isConnected) {
+            const isLocal = typeof window !== 'undefined' && 
+                (window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1');
+            const timeoutMs = isLocal ? 2000 : 5000;
+            
+            publishCommand("colosh/request_status", { request: "full_state" });
+
+            const timer = setTimeout(() => {
+                if (isLoading) {
+                    setIsLoading(false);
+                    setIsOnline(false);
+                }
+            }, timeoutMs);
+
+            return () => clearTimeout(timer);
+        }
+    }, [isConnected, publishCommand]);
+
+    useEffect(() => {
+        if (reactorData) {
+            setIsOnline(true);
+            setIsLoading(false);
+            
+            // Sync status with the fresh RPC payload
+            if (reactorData.active_experiment) {
+                 setStatus(prev => ({
+                    ...prev,
+                    active_experiment: reactorData.active_experiment,
+                    db_connected: reactorData.db_connected
+                 }));
+                 setActiveExperiment(reactorData.experiment_config);
+            }
+        }
+    }, [reactorData, setStatus]);
+
+    useEffect(() => {
+        // Fallback for direct DB lookup, though RPC payload should ideally handle this now
         getActiveExperiment().then(exp => {
             if (exp) {
                 setActiveExperiment(exp);
@@ -210,6 +252,47 @@ export default function Dashboard() {
             setIsSubmitting(false);
         }
     };
+
+    if (isLoading) {
+        return (
+            <div className="min-h-screen bg-neutral-950 flex items-center justify-center text-neutral-400">
+                <div className="flex flex-col items-center gap-4">
+                    <div className="w-8 h-8 border-4 border-indigo-500/30 border-t-indigo-500 rounded-full animate-spin"></div>
+                    <p>Connecting to Reactor Core...</p>
+                </div>
+            </div>
+        );
+    }
+
+    if (!isOnline && !isServerOnline) {
+        return (
+            <div className="min-h-screen bg-neutral-950 flex items-center justify-center p-6 bg-[radial-gradient(ellipse_at_center,_var(--tw-gradient-stops))] from-neutral-900 to-neutral-950">
+                <div className="max-w-md w-full border border-red-500/20 bg-red-500/5 rounded-xl p-8 text-center space-y-4">
+                    <div className="w-16 h-16 bg-red-500/10 rounded-full flex items-center justify-center mx-auto mb-6">
+                        <span className="text-3xl">🔌</span>
+                    </div>
+                    <h2 className="text-xl font-medium text-red-400">Reactor Offline</h2>
+                    <p className="text-neutral-400">
+                        The Next.js dashboard could not establish a connection to the Python backend core.
+                    </p>
+                    <div className="pt-6 space-y-2 text-sm text-neutral-500 text-left bg-neutral-900/50 p-4 rounded-lg">
+                        <p className="font-medium text-neutral-400">Troubleshooting:</p>
+                        <ul className="list-disc pl-4 space-y-1">
+                            <li>Check if <code className="text-pink-400">main.py</code> is running on the Pi</li>
+                            <li>Verify MQTT Broker (Mosquitto) is operational</li>
+                            <li>Check network/Tailscale connectivity</li>
+                        </ul>
+                    </div>
+                    <button 
+                        onClick={() => window.location.reload()}
+                        className="mt-6 w-full py-2.5 rounded-lg bg-red-500/10 hover:bg-red-500/20 text-red-400 font-medium transition-colors"
+                    >
+                        Retry Connection
+                    </button>
+                </div>
+            </div>
+        );
+    }
 
     return (
         <div className="text-neutral-100 font-sans selection:bg-indigo-500/30">

@@ -64,6 +64,7 @@ class ReactorController:
         self.mqtt.on_pump_calibrate_run = self.handle_pump_calibrate_run
         self.mqtt.on_pump_save_calibration = self.handle_pump_save_calibration
         self.mqtt.on_pump_cmd = self.handle_pump_cmd
+        self.mqtt.on_status_request = self.handle_status_request
 
         # 4. System state
         self.running = False
@@ -105,6 +106,35 @@ class ReactorController:
             )
 
     # ── MQTT command handlers ──────────────────────────────────────────────
+
+    async def handle_status_request(self, payload: dict):
+        """Respond to a colosh/request_status ping by compiling and publishing full state."""
+        try:
+            logger.info("Received colosh/request_status ping. Compiling and responding...")
+
+            # Calculate latest moving-average pH values out of the windows for all compartments
+            latest_ph = {}
+            for c in self.COMPARTMENTS:
+                window = self.ph_avg_windows[c]
+                # MUST cast deque to a list so it's JSON serializable
+                ph_list = list(window)
+                if ph_list:
+                    latest_ph[c] = round(sum(ph_list) / len(ph_list), 2)
+                else:
+                    latest_ph[c] = None
+
+            response = {
+                "health": "ok",
+                "active_experiment": self.active_experiment["id"] if self.active_experiment else None,
+                "db_connected": self.sqlite is not None,
+                "ph_data": latest_ph,
+                "experiment_config": self.active_experiment
+            }
+
+            self.mqtt.publish_compiled_status(response)
+
+        except Exception as e:
+            logger.error(f"Failed to handle status request: {e}")
 
     async def handle_calibration_control(self, payload: dict):
         """Handle calibration mode commands and post-save calibration reloads."""

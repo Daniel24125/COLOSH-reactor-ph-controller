@@ -23,6 +23,7 @@ class MQTTClient:
         self.on_pump_calibrate_run = None
         self.on_pump_save_calibration = None
         self.on_pump_cmd = None
+        self.on_status_request = None
 
         self.client = mqtt.Client(mqtt.CallbackAPIVersion.VERSION2, client_id=self.client_id)
         self.client.on_connect = self._on_connect
@@ -58,6 +59,7 @@ class MQTTClient:
             client.subscribe("pump/config/save_calibration")
             client.subscribe("reactor/db/request")
             client.subscribe("reactor/+/cmd/pump")  # reactor/{compartment_id}/cmd/pump
+            client.subscribe("colosh/request_status")
         else:
             logger.error(f"Failed to connect, return code {reason_code}")
 
@@ -110,6 +112,11 @@ class MQTTClient:
         elif topic == "reactor/db/request":
             asyncio.run_coroutine_threadsafe(
                 self._handle_db_query(data),
+                self._loop
+            )
+        elif topic == "colosh/request_status" and self.on_status_request:
+            asyncio.run_coroutine_threadsafe(
+                self.on_status_request(data),
                 self._loop
             )
         elif "cmd/pump" in topic and self.on_pump_cmd:
@@ -203,6 +210,13 @@ class MQTTClient:
             self.client.publish("reactor/calibration/raw", json.dumps(raw_data))
         except Exception as e:
             logger.error(f"Failed to publish raw ADC value: {e}")
+
+    def publish_compiled_status(self, payload: dict):
+        """Publish initial compiled reactor status payload across the Call-and-Response loop."""
+        try:
+            self.client.publish("colosh/status", json.dumps(payload))
+        except Exception as e:
+            logger.error(f"Failed to publish compiled status: {e}")
 
     def publish_event(self, level: str, message: str, compartment: int = None):
         """Publish event logs."""
