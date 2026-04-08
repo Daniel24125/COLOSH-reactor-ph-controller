@@ -38,7 +38,7 @@ class SQLiteClient:
                         c3_max_ph REAL NOT NULL,
                         max_pump_time_sec INTEGER NOT NULL,
                         mixing_cooldown_sec INTEGER NOT NULL,
-                        manual_dose_steps INTEGER NOT NULL,
+                        ph_moving_avg_window INTEGER DEFAULT 10,
                         status TEXT DEFAULT 'active',
                         created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
                         FOREIGN KEY (project_id) REFERENCES projects(id)
@@ -91,6 +91,7 @@ class SQLiteClient:
                     'ALTER TABLE calibrations ADD COLUMN point2_raw INTEGER',
                     'ALTER TABLE calibrations ADD COLUMN point3_ph REAL',
                     'ALTER TABLE calibrations ADD COLUMN point3_raw INTEGER',
+                    'ALTER TABLE experiments ADD COLUMN ph_moving_avg_window INTEGER DEFAULT 10',
                 ]
                 for stmt in migration_cols:
                     try:
@@ -184,7 +185,7 @@ class SQLiteClient:
                     INSERT INTO experiments (
                         id, project_id, name, measurement_interval_mins, c1_min_ph, c1_max_ph, 
                         c2_min_ph, c2_max_ph, c3_min_ph, c3_max_ph, max_pump_time_sec, 
-                        mixing_cooldown_sec, manual_dose_steps, status
+                        mixing_cooldown_sec, ph_moving_avg_window, status
                     ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'active')
                 ''', (
                     experiment_id, project_id, name, config.get('measurement_interval_mins', 1),
@@ -192,7 +193,7 @@ class SQLiteClient:
                     config.get('c2_min_ph'), config.get('c2_max_ph'),
                     config.get('c3_min_ph'), config.get('c3_max_ph'),
                     config.get('max_pump_time_sec'), config.get('mixing_cooldown_sec'), 
-                    config.get('manual_dose_steps')
+                    config.get('ph_moving_avg_window', 10)
                 ))
                 conn.commit()
                 return experiment_id

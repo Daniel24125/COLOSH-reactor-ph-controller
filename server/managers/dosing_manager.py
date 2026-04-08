@@ -11,8 +11,8 @@ class DosingManager:
     with background task management.
     """
     DEFAULT_DOSE_STEPS = 500
-    DEFAULT_MAX_PUMP_SEC = 30
-    DEFAULT_COOLDOWN_SEC = 10
+    DEFAULT_MAX_PUMP_SEC = 2
+    DEFAULT_COOLDOWN_SEC = 30
 
     def __init__(
         self,

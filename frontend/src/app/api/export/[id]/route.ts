@@ -127,7 +127,7 @@ export async function GET(_req: Request, { params }: { params: Promise<{ id: str
         addInfoSection("Pump Configuration", [
             ["Max Pump Time (sec)", experiment.max_pump_time_sec],
             ["Mixing Cooldown (sec)", experiment.mixing_cooldown_sec],
-            ["Manual Dose Steps", experiment.manual_dose_steps],
+            ["Moving Average Window", experiment.ph_moving_avg_window],
         ]);
 
         addInfoSection("Export", [

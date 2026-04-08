@@ -6,7 +6,7 @@ export async function POST(req: Request) {
         const {
             projectId, projectName, researcherName, experimentName,
             measurementIntervalMins, c1MinPh, c1MaxPh, c2MinPh, c2MaxPh, c3MinPh, c3MaxPh,
-            maxPumpTimeSec, mixingCooldownSec, manualDoseSteps
+            maxPumpTimeSec, mixingCooldownSec, phMovingAvgWindow
         } = await req.json();
 
         if (
@@ -15,7 +15,7 @@ export async function POST(req: Request) {
             c1MinPh === undefined || c1MaxPh === undefined ||
             c2MinPh === undefined || c2MaxPh === undefined ||
             c3MinPh === undefined || c3MaxPh === undefined ||
-            maxPumpTimeSec === undefined || mixingCooldownSec === undefined || manualDoseSteps === undefined
+            maxPumpTimeSec === undefined || mixingCooldownSec === undefined || phMovingAvgWindow === undefined
         ) {
             return NextResponse.json({ error: 'Missing required experiment fields' }, { status: 400 });
         }
@@ -42,12 +42,12 @@ export async function POST(req: Request) {
         await db.run(
             `INSERT INTO experiments (
                 id, project_id, name, measurement_interval_mins, c1_min_ph, c1_max_ph, c2_min_ph, c2_max_ph, c3_min_ph, c3_max_ph, 
-                max_pump_time_sec, mixing_cooldown_sec, manual_dose_steps, status
+                max_pump_time_sec, mixing_cooldown_sec, ph_moving_avg_window, status
             ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
             [
                 experimentId, activeProjectId, experimentName, measurementIntervalMins || 1,
                 c1MinPh, c1MaxPh, c2MinPh, c2MaxPh, c3MinPh, c3MaxPh,
-                maxPumpTimeSec, mixingCooldownSec, manualDoseSteps, 'active'
+                maxPumpTimeSec, mixingCooldownSec, phMovingAvgWindow, 'active'
             ]
         );
 

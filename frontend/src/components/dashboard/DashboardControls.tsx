@@ -79,11 +79,10 @@ export const ManualOverrideControl = memo(function ManualOverrideControl({ isOpe
                                             <button
                                                 key={`vol-${id}-${vol}`}
                                                 onClick={() => updateSelectedVolume(id, vol)}
-                                                className={`flex-1 py-1 text-[10px] font-bold rounded-md transition-all ${
-                                                    selectedVolumes[id] === vol 
-                                                    ? "bg-indigo-600 text-white shadow-sm" 
+                                                className={`flex-1 py-1 text-[10px] font-bold rounded-md transition-all ${selectedVolumes[id] === vol
+                                                    ? "bg-indigo-600 text-white shadow-sm"
                                                     : "text-neutral-500 hover:text-neutral-300"
-                                                }`}
+                                                    }`}
                                             >
                                                 {vol}
                                             </button>
@@ -102,7 +101,7 @@ export const ManualOverrideControl = memo(function ManualOverrideControl({ isOpe
                     ))}
                 </div>
                 <p className="text-neutral-500 text-xs leading-relaxed">
-                    <span className="text-amber-500/80 font-semibold px-1">SAFETY NOTE:</span> 
+                    <span className="text-amber-500/80 font-semibold px-1">SAFETY NOTE:</span>
                     Press-to-pump has a 3s hardware cutoff. Preset doses use calibrated volumetric math.
                 </p>
             </div>
@@ -251,15 +250,15 @@ export function SetupExperimentModal({
                                 <div className="pt-2 border-t border-neutral-800/50 grid grid-cols-2 gap-3">
                                     <div>
                                         <label className="block text-[10px] text-neutral-500 mb-1">Max Pump Time (Sec)</label>
-                                        <input required name="maxPumpTimeSec" type="number" defaultValue="30" className="w-full bg-neutral-950 border border-neutral-800 rounded-lg px-2 py-1 text-neutral-200 text-xs focus:outline-none focus:border-indigo-500" />
+                                        <input required name="maxPumpTimeSec" type="number" defaultValue="2" className="w-full bg-neutral-950 border border-neutral-800 rounded-lg px-2 py-1 text-neutral-200 text-xs focus:outline-none focus:border-indigo-500" />
                                     </div>
                                     <div>
                                         <label className="block text-[10px] text-neutral-500 mb-1">Mixing Cooldown (Sec)</label>
-                                        <input required name="mixingCooldownSec" type="number" defaultValue="10" className="w-full bg-neutral-950 border border-neutral-800 rounded-lg px-2 py-1 text-neutral-200 text-xs focus:outline-none focus:border-indigo-500" />
+                                        <input required name="mixingCooldownSec" type="number" defaultValue="30" className="w-full bg-neutral-950 border border-neutral-800 rounded-lg px-2 py-1 text-neutral-200 text-xs focus:outline-none focus:border-indigo-500" />
                                     </div>
                                     <div className="col-span-2">
-                                        <label className="block text-[10px] text-neutral-500 mb-1">Manual Dose Limit (Steps)</label>
-                                        <input required name="manualDoseSteps" type="number" defaultValue="50" className="w-full bg-neutral-950 border border-neutral-800 rounded-lg px-2 py-1 text-neutral-200 text-xs focus:outline-none focus:border-indigo-500" />
+                                        <label className="block text-[10px] text-neutral-500 mb-1">Moving Average Window (Sec)</label>
+                                        <input required name="phMovingAvgWindow" type="number" defaultValue="10" className="w-full bg-neutral-950 border border-neutral-800 rounded-lg px-2 py-1 text-neutral-200 text-xs focus:outline-none focus:border-indigo-500" />
                                     </div>
                                 </div>
                             </div>

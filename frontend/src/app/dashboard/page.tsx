@@ -224,9 +224,9 @@ export default function Dashboard() {
             c2MaxPh: parseFloat(formData.get("c2MaxPh") as string) || 14,
             c3MinPh: parseFloat(formData.get("c3MinPh") as string) || 0,
             c3MaxPh: parseFloat(formData.get("c3MaxPh") as string) || 14,
-            maxPumpTimeSec: parseInt(formData.get("maxPumpTimeSec") as string) || 30,
-            mixingCooldownSec: parseInt(formData.get("mixingCooldownSec") as string) || 60,
-            manualDoseSteps: parseInt(formData.get("manualDoseSteps") as string) || 100,
+            maxPumpTimeSec: parseInt(formData.get("maxPumpTimeSec") as string) || 2,
+            mixingCooldownSec: parseInt(formData.get("mixingCooldownSec") as string) || 30,
+            phMovingAvgWindow: parseInt(formData.get("phMovingAvgWindow") as string) || 10,
         };
 
         try {
@@ -253,7 +253,7 @@ export default function Dashboard() {
                     c3_min_ph: data.c3MinPh, c3_max_ph: data.c3MaxPh,
                     max_pump_time_sec: data.maxPumpTimeSec,
                     mixing_cooldown_sec: data.mixingCooldownSec,
-                    manual_dose_steps: data.manualDoseSteps
+                    ph_moving_avg_window: data.phMovingAvgWindow
                 });
             } else {
                 toast.error("Failed to compile or start experiment on backend.");

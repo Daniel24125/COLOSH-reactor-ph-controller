@@ -18,7 +18,7 @@ export type Experiment = {
     c3_max_ph: number;
     max_pump_time_sec: number;
     mixing_cooldown_sec: number;
-    manual_dose_steps: number;
+    ph_moving_avg_window: number;
     status: string;
     created_at: string;
 };

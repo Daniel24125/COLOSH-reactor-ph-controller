@@ -1,5 +1,6 @@
 import asyncio
 import logging
+import collections
 from typing import Dict, Any, Callable, Awaitable
 
 logger = logging.getLogger(__name__)
@@ -52,7 +53,17 @@ class SensorManager:
                     inst_ph = self.ph_ctrl.raw_to_ph(compartment_id, raw)
 
                     # 3. Process Stability: Moving Average pH
+                    active_exp = self.state.active_experiment
+                    if active_exp:
+                        new_window_size = active_exp.get("ph_moving_avg_window", self.state.PH_MOVING_AVG_WINDOW)
+                    else:
+                        new_window_size = self.state.PH_MOVING_AVG_WINDOW
+
                     ph_avg_window = self.state.ph_avg_windows[compartment_id]
+                    if ph_avg_window.maxlen != new_window_size:
+                        self.state.ph_avg_windows[compartment_id] = collections.deque(ph_avg_window, maxlen=new_window_size)
+                        ph_avg_window = self.state.ph_avg_windows[compartment_id]
+
                     ph_avg_window.append(inst_ph)
                     ma_ph = round(sum(ph_avg_window) / len(ph_avg_window), 2)
 
