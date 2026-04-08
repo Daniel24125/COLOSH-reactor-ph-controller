@@ -42,12 +42,12 @@ export async function POST(req: Request) {
         await db.run(
             `INSERT INTO experiments (
                 id, project_id, name, measurement_interval_mins, c1_min_ph, c1_max_ph, c2_min_ph, c2_max_ph, c3_min_ph, c3_max_ph, 
-                max_pump_time_sec, mixing_cooldown_sec, ph_moving_avg_window, status
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+                max_pump_time_sec, mixing_cooldown_sec, ph_moving_avg_window, manual_dose_steps, status
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
             [
                 experimentId, activeProjectId, experimentName, measurementIntervalMins || 1,
                 c1MinPh, c1MaxPh, c2MinPh, c2MaxPh, c3MinPh, c3MaxPh,
-                maxPumpTimeSec, mixingCooldownSec, phMovingAvgWindow, 'active'
+                maxPumpTimeSec, mixingCooldownSec, phMovingAvgWindow, 0, 'active'
             ]
         );
 

@@ -24,7 +24,7 @@ function getMqttClient(): Promise<mqtt.MqttClient> {
                 }
             });
         }
-        
+
         if (mqttClient.connected) resolve(mqttClient);
         else mqttClient.once('connect', () => resolve(mqttClient!));
     });
@@ -34,7 +34,7 @@ class RemoteDb {
     private async query(method: string, sql: string, params: any[] = []) {
         const client = await getMqttClient();
         const reqId = crypto.randomUUID();
-        
+
         return new Promise((resolve, reject) => {
             const timer = setTimeout(() => {
                 pendingRequests.delete(reqId);
@@ -81,7 +81,7 @@ class RemoteDb {
         await this.query('exec', sql, []);
     }
 
-    async close(): Promise<void> {}
+    async close(): Promise<void> { }
 }
 
 let dbInstance: RemoteDb | null = null;

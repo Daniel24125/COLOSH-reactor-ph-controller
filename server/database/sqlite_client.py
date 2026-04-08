@@ -185,15 +185,15 @@ class SQLiteClient:
                     INSERT INTO experiments (
                         id, project_id, name, measurement_interval_mins, c1_min_ph, c1_max_ph, 
                         c2_min_ph, c2_max_ph, c3_min_ph, c3_max_ph, max_pump_time_sec, 
-                        mixing_cooldown_sec, ph_moving_avg_window, status
-                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'active')
+                        mixing_cooldown_sec, ph_moving_avg_window, manual_dose_steps, status
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'active')
                 ''', (
                     experiment_id, project_id, name, config.get('measurement_interval_mins', 1),
                     config.get('c1_min_ph'), config.get('c1_max_ph'),
                     config.get('c2_min_ph'), config.get('c2_max_ph'),
                     config.get('c3_min_ph'), config.get('c3_max_ph'),
                     config.get('max_pump_time_sec'), config.get('mixing_cooldown_sec'), 
-                    config.get('ph_moving_avg_window', 10)
+                    config.get('ph_moving_avg_window', 10), 0  # manual_dose_steps deprecated, sentinel 0
                 ))
                 conn.commit()
                 return experiment_id
