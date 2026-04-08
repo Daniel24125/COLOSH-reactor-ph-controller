@@ -1,7 +1,7 @@
 "use client";
 
 import { useMqtt } from "@/hooks/useMqtt";
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useRef } from "react";
 import { getProjects, stopExperiment, getTelemetry, getActiveExperiment } from "@/actions/dbActions";
 import { getCalibrationStatus } from "@/actions/calibrationActions";
 import { useElapsedTime } from "@/hooks/useElapsedTime";
@@ -22,7 +22,7 @@ const SetupExperimentModal = dynamic(
 );
 
 export default function Dashboard() {
-    const { isConnected, isServerOnline, phData, loggedTelemetry, status, setStatus, eventLogs, dosePump, publishCommand, reactorData, setReactorData } = useMqtt();
+    const { isConnected, isServerOnline, phData, loggedTelemetry, status, setStatus, eventLogs, dosePump, publishCommand, reactorData, setReactorData, client } = useMqtt();
     const isOperational = isConnected && isServerOnline === true;
     const [showSetup, setShowSetup] = useState(false);
     const [isSubmitting, setIsSubmitting] = useState(false);
@@ -35,6 +35,8 @@ export default function Dashboard() {
     // RPC State
     const [isLoading, setIsLoading] = useState(true);
     const [isOnline, setIsOnline] = useState(false);
+    const hasRequestedStatus = useRef(false);
+    const statusTimeoutRef = useRef<NodeJS.Timeout | null>(null);
 
     // Telemetry Chart State
     const [chartData, setChartData] = useState<(Telemetry & { timeStr: string })[]>([]);
@@ -51,26 +53,37 @@ export default function Dashboard() {
     // Fetch initial status from DB so we don't wait for periodic MQTT ping
     useEffect(() => {
         // RPC Loop
-        if (isConnected) {
+        if (isConnected && client) {
+            if (hasRequestedStatus.current) return;
+            hasRequestedStatus.current = true;
+
             const isLocal = typeof window !== 'undefined' && 
                 (window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1');
             const timeoutMs = isLocal ? 2000 : 5000;
             
             publishCommand("colosh/request_status", { request: "full_state" });
 
-            const timer = setTimeout(() => {
-                if (isLoading) {
-                    setIsLoading(false);
-                    setIsOnline(false);
-                }
+            statusTimeoutRef.current = setTimeout(() => {
+                setIsLoading((prev) => {
+                    if (prev) setIsOnline(false);
+                    return false;
+                });
             }, timeoutMs);
 
-            return () => clearTimeout(timer);
+            return () => {
+                if (statusTimeoutRef.current) {
+                    clearTimeout(statusTimeoutRef.current);
+                }
+            };
         }
-    }, [isConnected, publishCommand]);
+    }, [isConnected, client]);
 
     useEffect(() => {
         if (reactorData) {
+            if (statusTimeoutRef.current) {
+                clearTimeout(statusTimeoutRef.current);
+                statusTimeoutRef.current = null;
+            }
             setIsOnline(true);
             setIsLoading(false);
             

@@ -1,6 +1,6 @@
 "use client";
 
-import { createContext, useContext, useState, useEffect, useRef, ReactNode } from "react";
+import { createContext, useContext, useState, useEffect, useRef, ReactNode, useCallback } from "react";
 import mqtt from "mqtt";
 import { toast } from "sonner";
 import type { PhData } from "@/types";
@@ -60,6 +60,10 @@ export function MqttProvider({ children }: { children: ReactNode }) {
             try {
                 const payload = JSON.parse(message.toString());
                 if (topic === "reactor/telemetry/ph") {
+                    setIsServerOnline((prev) => {
+                        if (prev === false) toast.success("Reactor server is back online.");
+                        return true;
+                    });
                     // Payload shape: { "1": { ph, raw, stable }, "2": {...}, "3": {...} }
                     setPhData((prev) => {
                         const next = { ...prev };
@@ -93,7 +97,7 @@ export function MqttProvider({ children }: { children: ReactNode }) {
                 } else if (topic === "reactor/events") {
                     setEventLogs((prev) => [...prev, { id: Math.random().toString(36).substring(7), ...payload }].slice(-100));
                 } else if (topic === "reactor/server/status") {
-                    const online = payload.status === "online";
+                    const online = payload.health === "ok";
                     setIsServerOnline((prev) => {
                         // Only toast on actual transitions from a KNOWN state.
                         // Skip null → true (initial retained-message delivery on connect).
@@ -127,25 +131,25 @@ export function MqttProvider({ children }: { children: ReactNode }) {
         };
     }, []);
 
-    const dosePump = (pumpId: number, direction: "forward" | "reverse", steps?: number) => {
+    const dosePump = useCallback((pumpId: number, direction: "forward" | "reverse", steps?: number) => {
         if (client && isConnected) {
             const payload: any = { pump_id: pumpId, direction };
             if (steps !== undefined) payload.steps = steps;
             client.publish("reactor/control/pump/manual", JSON.stringify(payload));
         }
-    };
+    }, [client, isConnected]);
 
-    const updateAutoThresholds = (experimentId: string, phMin: number, phMax: number) => {
+    const updateAutoThresholds = useCallback((experimentId: string, phMin: number, phMax: number) => {
         if (client && isConnected) {
             client.publish("reactor/control/pump/auto", JSON.stringify({ experiment_id: experimentId, ph_min: phMin, ph_max: phMax }));
         }
-    };
+    }, [client, isConnected]);
 
-    const publishCommand = (topic: string, payload: object) => {
+    const publishCommand = useCallback((topic: string, payload: object) => {
         if (client && isConnected) {
             client.publish(topic, JSON.stringify(payload));
         }
-    };
+    }, [client, isConnected]);
 
     return (
         <MqttContext.Provider value={{
